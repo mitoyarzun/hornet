@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "clock": "frontend_ticks",
+  "max_ticks": 6000,
+  "actions": [
+    { "type": "run", "ticks": 300 },
+    { "type": "screenshot", "name": "a_title" },
+
+    { "type": "log", "message": "Switch to Interactive Demo" },
+    { "type": "mouse_down", "v": 513, "h": 607 },
+    { "type": "run", "ticks": 3 },
+    { "type": "mouse_up", "v": 513, "h": 607 },
+    { "type": "run", "ticks": 300 },
+    { "type": "screenshot", "name": "b_briefing" },
+
+    { "type": "log", "message": "Fly Demo; this is where the HFS slash bug showed 'can't find F/A-18 Data'" },
+    { "type": "mouse_down", "v": 301, "h": 52 },
+    { "type": "run", "ticks": 3 },
+    { "type": "mouse_up", "v": 301, "h": 52 },
+    { "type": "run_until_pixel", "x": 150, "y": 100, "rgb": [184, 218, 236], "timeout_ticks": 900 },
+    { "type": "assert_pixel", "x": 100, "y": 450, "rgb": [60, 66, 66] },
+    { "type": "milestone", "name": "cockpit" },
+
+    { "type": "log", "message": "Centre the mouse: the stick follows the pointer" },
+    { "type": "mouse_move", "v": 300, "h": 400 },
+    { "type": "run", "ticks": 30 },
+    { "type": "screenshot", "name": "c_cockpit" },
+
+    { "type": "log", "message": "Delete starts the engines" },
+    { "type": "key_down", "key": 51, "ch": 8 },
+    { "type": "run", "ticks": 4 },
+    { "type": "key_up", "key": 51, "ch": 8 },
+    { "type": "run", "ticks": 720 },
+    { "type": "screenshot", "name": "d_takeoff_roll" },
+
+    { "type": "log", "message": "Pull back" },
+    { "type": "mouse_move", "v": 470, "h": 400 },
+    { "type": "run", "ticks": 150 },
+    { "type": "mouse_move", "v": 340, "h": 400 },
+    { "type": "run", "ticks": 300 },
+    { "type": "screenshot", "name": "e_rotate" },
+
+    { "type": "log", "message": "3 selects the external view" },
+    { "type": "key_down", "key": 20, "ch": 51 },
+    { "type": "run", "ticks": 4 },
+    { "type": "key_up", "key": 20, "ch": 51 },
+    { "type": "run", "ticks": 90 },
+    { "type": "screenshot", "name": "f_external" }
+  ]
+}

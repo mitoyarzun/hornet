@@ -1,0 +1,13 @@
+diff --git a/src/systems/macintosh/loader/ppc/import_targets.rs b/src/systems/macintosh/loader/ppc/import_targets.rs
+index 3b29514..566f71f 100644
+--- a/src/systems/macintosh/loader/ppc/import_targets.rs
++++ b/src/systems/macintosh/loader/ppc/import_targets.rs
+@@ -4039,7 +4039,7 @@ pub(crate) fn dispatcher_target_for_import(
+         ("InterfaceLib", "LMGetTEScrpLength" | "TEGetScrapLength") => {
+             PpcImportDispatcherTarget::TEScrapLength { set: false }
+         }
+-        ("InterfaceLib", "LMSetTEScrpLength") => {
++        ("InterfaceLib", "LMSetTEScrpLength" | "TESetScrapLength") => {
+             PpcImportDispatcherTarget::TEScrapLength { set: true }
+         }
+         (
