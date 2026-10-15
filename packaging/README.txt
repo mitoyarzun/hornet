@@ -15,17 +15,17 @@ Start the game
 macOS:   double-click "F-A-18 Hornet".
 Windows: double-click "F-A-18 Hornet.exe".
 
-At the first start, select your game file. The launcher remembers it, so the
-next starts go directly to the game. The game asks for the serial number
+At the first start, the launcher shows its settings window. Click "Choose…"
+and select your game file, then click "Play". The launcher remembers the file
+and the settings, so the next starts go directly to the game. The game asks for the serial number
 from your Pilot Flight Manual one time.
 
 If the game file moves, the launcher asks for it again. To use a different
 file on Windows, drag it onto "F-A-18 Hornet.exe".
 
-At the first start, the launcher also asks for the size of the game screen
-and for a window or full screen. On macOS, it also asks where to put the
-game's menu bar. To change these settings later, hold down
-Shift when you start the game.
+In the settings window you also select the size of the game screen, a window
+or full screen, and (on macOS) where to put the game's menu bar. To show the
+window again later, hold down Shift when you start the game.
 
 First start on macOS
 --------------------
