@@ -1,3 +1,28 @@
+diff --git a/src/systems/macintosh/trap/dispatch.rs b/src/systems/macintosh/trap/dispatch.rs
+index fe5315b..f25f964 100644
+--- a/src/systems/macintosh/trap/dispatch.rs
++++ b/src/systems/macintosh/trap/dispatch.rs
+@@ -8093,7 +8093,10 @@ impl TrapDispatcher {
+         // relative-path matching fail. For example, a request for
+         // `:Data Files:Data CD` must not open `Character Files/Data CD`.
+         // Basename-only requests retain the historical search-path fallback.
+-        if !hfs_normalized.contains('/') && !normalized.contains('/') {
++        // A colon-free HFS name is a basename even when it contains a slash,
++        // which is a legal HFS filename character ("F/A-18 Data").
++        // Inside Macintosh: Files (1992), pp. 2-27 to 2-30.
++        if !hfs_normalized.contains('/') {
+             let hfs_basename = hfs_normalized
+                 .rsplit('/')
+                 .next()
+@@ -8104,6 +8107,8 @@ impl TrapDispatcher {
+                     return Some((*key).clone());
+                 }
+             }
++        }
++        if !hfs_normalized.contains('/') && !normalized.contains('/') {
+             let basename = normalized.rsplit('/').next().unwrap_or(normalized.as_str());
+             for key in &sorted_keys {
+                 let key_base = key.rsplit('/').next().unwrap_or(key);
 diff --git a/src/systems/macintosh/trap/resource.rs b/src/systems/macintosh/trap/resource.rs
 index 4880b84..bd2af51 100644
 --- a/src/systems/macintosh/trap/resource.rs
@@ -24,7 +49,7 @@ index 4880b84..bd2af51 100644
              for key in &sorted_keys {
                  let key_base = key.rsplit('/').next().unwrap_or(key);
 diff --git a/src/systems/macintosh/trap/resource/tests.rs b/src/systems/macintosh/trap/resource/tests.rs
-index 121903d..c28fea7 100644
+index 121903d..8a356cb 100644
 --- a/src/systems/macintosh/trap/resource/tests.rs
 +++ b/src/systems/macintosh/trap/resource/tests.rs
 @@ -443,6 +443,19 @@ fn find_vfs_file_does_not_discard_explicit_path_components() {
@@ -32,16 +57,16 @@ index 121903d..c28fea7 100644
  }
  
 +#[test]
-+fn find_vfs_file_matches_hfs_basename_containing_slash() {
++fn vfs_finders_match_hfs_basename_containing_slash() {
 +    let disp = super::super::TrapDispatcher::new();
-+    let key = "F\u{F02F}A-18 2.0 Demo/F\u{F02F}A-18 Data 2.0 (demo)";
++    let key = "F\u{F02F}A-18 Hornet Folder/F\u{F02F}A-18 Data 2.0";
 +    disp.vfs.insert(key.to_string(), vec![1]);
++    disp.vfs_rsrc.insert(key.to_string(), vec![2]);
 +
-+    assert_eq!(
-+        disp.find_vfs_file("F/A-18 Data 2.0 (demo)"),
-+        Some(key.to_string())
-+    );
++    assert_eq!(disp.find_vfs_file("F/A-18 Data 2.0"), Some(key.to_string()));
++    assert_eq!(disp.find_vfs_rsrc_file("F/A-18 Data 2.0"), Some(key.to_string()));
 +    assert_eq!(disp.find_vfs_file("F/A-18 Data"), None);
++    assert_eq!(disp.find_vfs_rsrc_file("F/A-18 Data"), None);
 +}
 +
  #[test]
