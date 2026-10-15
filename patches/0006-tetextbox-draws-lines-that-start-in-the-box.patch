@@ -1,0 +1,70 @@
+diff --git a/src/systems/macintosh/trap/dialog.rs b/src/systems/macintosh/trap/dialog.rs
+index a3de10a1..bf194c21 100644
+--- a/src/systems/macintosh/trap/dialog.rs
++++ b/src/systems/macintosh/trap/dialog.rs
+@@ -15523,9 +15523,15 @@ impl super::TrapDispatcher {
+                         );
+ 
+                         // Draw each line
++                        // Draw each line whose top is inside the box, like
++                        // TEUpdate does for the view rectangle. A label box
++                        // can be exactly one line high and shorter than
++                        // ascent + descent: F/A-18 Hornet 2.0 draws its
++                        // dossier labels in Courier 12 into 12-pixel boxes.
++                        // Inside Macintosh: Text (1993), pp. 2-86 to 2-88.
+                         let mut y = box_top + metrics.ascent;
+                         for line in &lines {
+-                            if y + metrics.descent > box_bottom {
++                            if y - metrics.ascent >= box_bottom {
+                                 break;
+                             }
+                             let lw = measure(line.start, line.visible_end);
+diff --git a/src/systems/macintosh/trap/dialog/tests.rs b/src/systems/macintosh/trap/dialog/tests.rs
+index 590e92a0..ae7e8766 100644
+--- a/src/systems/macintosh/trap/dialog/tests.rs
++++ b/src/systems/macintosh/trap/dialog/tests.rs
+@@ -11146,6 +11146,44 @@
+         assert!(x_left < x_center && x_center < x_right);
+     }
+ 
++    #[test]
++    fn te_text_box_draws_a_line_taller_than_the_box() {
++        // Courier 12 is 13 pixels from ascent to descent. TETextBox still
++        // draws a line whose top is inside a 12-pixel box.
++        let (mut disp, mut cpu, mut bus) = setup_with_port();
++        let port_ptr = 0x181000u32;
++        disp
++            .current_port
++            .with_mut(|current_port| *current_port = port_ptr);
++        disp.tx_font = 22;
++        disp.tx_size = 12;
++        bus.write_word(port_ptr + 68, 22);
++        bus.write_word(port_ptr + 74, 12);
++        disp.pn_loc = (0, 0);
++
++        let text = b"Name";
++        let text_ptr = 0x200280u32;
++        bus.write_bytes(text_ptr, text);
++        let box_ptr = 0x2002C0u32;
++        for (offset, value) in [36i16, 144, 48, 188].into_iter().enumerate() {
++            bus.write_word(box_ptr + offset as u32 * 2, value as u16);
++        }
++
++        let sp = TEST_SP - 14;
++        cpu.write_reg(Register::A7, sp);
++        bus.write_word(sp, 0);
++        bus.write_long(sp + 2, box_ptr);
++        bus.write_long(sp + 6, text.len() as u32);
++        bus.write_long(sp + 10, text_ptr);
++        let result = disp.dispatch_dialog(true, 0x1CE, &mut cpu, &mut bus);
++        assert!(result.unwrap().is_ok());
++
++        let metrics = crate::quickdraw::text::get_font_metrics(22, 12);
++        assert!(metrics.ascent + metrics.descent > 12);
++        assert_eq!(disp.pn_loc.0, 36 + metrics.ascent);
++        assert!(disp.pn_loc.1 > 144);
++    }
++
+     #[test]
+     fn te_text_box_pascal_procedure_protocol_does_not_overwrite_past_arg_frame() {
+         // Per Inside Macintosh: Text 1993, p. 2-88 TETextBox is a

@@ -18,7 +18,7 @@ Mac ROM, no System software and no machine emulator.
 An AI agent did most of the work in this project. Claude Code, from Anthropic,
 did these tasks:
 
-- It found the causes of the failures and wrote the five Systemless patches.
+- It found the causes of the failures and wrote the seven Systemless patches.
 - It wrote the launcher, the scripts, the release workflow and this README.
 - It made the screenshots and the video with automated, headless runs.
 
@@ -44,7 +44,7 @@ full flight.
 
 ## Status
 
-The 68K version of the game runs, with five small patches to Systemless.
+The 68K version of the game runs, with seven small patches to Systemless.
 
 - **Retail 2.0.1:** the game starts directly from the installer disc. These
   parts work: registration, the pilot dossier, the briefing, the menus, the
@@ -245,6 +245,21 @@ The game draws the page as one picture. Between the text blocks, the picture
 contains the `Origin` opcode (`$000C`), which records a `SetOrigin` call.
 Systemless skipped this opcode, so it drew the "Notes" paragraph on top of
 the mission block. The patch moves the coordinates that follow the opcode.
+
+**`0006-tetextbox-draws-lines-that-start-in-the-box.patch`** shows the
+labels of the Pilot Dossier page. The game draws each label, for example
+"Name" and "Rank", with `TETextBox` in Courier 12, in a box 12 pixels high.
+Courier 12 needs 13 pixels from the top of the letters to the bottom of the
+descenders. Systemless drew a line only when all 13 pixels were in the box, so
+it drew no labels. The patch draws each line whose top is in the box, as the
+TextEdit drawing code of Systemless already does.
+
+**`0007-newrgn-returns-an-empty-region.patch`** corrects the Awards box of
+the Pilot Dossier page. The game clips its award ribbons to a region that
+contains only the earned ribbons. `NewRgn` must return an empty region, but
+Systemless did not clear the bounding box. A reused memory block kept the box
+of an old region, so the game drew all 35 ribbons as black bars. The patch
+clears the box.
 
 ## Things to know
 

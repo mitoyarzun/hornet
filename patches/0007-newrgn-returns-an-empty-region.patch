@@ -1,0 +1,55 @@
+diff --git a/src/systems/macintosh/trap/quickdraw.rs b/src/systems/macintosh/trap/quickdraw.rs
+index 7c04057a..e8f3ca95 100644
+--- a/src/systems/macintosh/trap/quickdraw.rs
++++ b/src/systems/macintosh/trap/quickdraw.rs
+@@ -1833,7 +1833,13 @@ impl super::TrapDispatcher {
+             (true, 0x0D8) => {
+                 let sp = cpu.read_reg(Register::A7);
+                 let ptr = bus.alloc(10);
++                // The new region is empty: rgnSize 10 and rgnBBox (0,0,0,0).
++                // The allocator can return a block that still holds an old
++                // region's box. F/A-18 Hornet 2.0 clips its award ribbons
++                // to a new region, and a stale box drew all of them.
++                // Imaging With QuickDraw (1994), p. 3-91.
+                 bus.write_word(ptr, 10);
++                bus.write_bytes(ptr + 2, &[0; 8]);
+                 let handle = bus.alloc(4);
+                 bus.write_long(handle, ptr);
+                 // Write result into the caller's pre-allocated slot at SP
+diff --git a/src/systems/macintosh/trap/quickdraw/tests.rs b/src/systems/macintosh/trap/quickdraw/tests.rs
+index 3d511a31..a9fd51d2 100644
+--- a/src/systems/macintosh/trap/quickdraw/tests.rs
++++ b/src/systems/macintosh/trap/quickdraw/tests.rs
+@@ -4430,6 +4430,32 @@
+         assert_eq!(bus.read_word(ptr), 10); // rgnSize
+     }
+ 
++    #[test]
++    fn new_rgn_is_empty_after_an_old_region_is_disposed() {
++        // NewRgn returns the empty region (0,0,0,0) even when the allocator
++        // gives back the block of a disposed region.
++        // Imaging With QuickDraw (1994), p. 3-91.
++        let (mut d, mut cpu, mut bus) = setup();
++        d.dispatch_quickdraw(true, 0x0D8, &mut cpu, &mut bus)
++            .unwrap()
++            .unwrap();
++        let old_handle = bus.read_long(TEST_SP);
++        let old_ptr = bus.read_long(old_handle);
++        bus.write_bytes(old_ptr + 2, &[0, 0, 0, 0, 1, 0x24, 1, 0xF0]);
++        bus.write_long(TEST_SP, old_handle);
++        d.dispatch_quickdraw(true, 0x0D9, &mut cpu, &mut bus)
++            .unwrap()
++            .unwrap();
++
++        cpu.write_reg(Register::A7, TEST_SP);
++        d.dispatch_quickdraw(true, 0x0D8, &mut cpu, &mut bus)
++            .unwrap()
++            .unwrap();
++        let ptr = bus.read_long(bus.read_long(TEST_SP));
++        assert_eq!(bus.read_word(ptr), 10);
++        assert_eq!(bus.read_bytes(ptr + 2, 8), vec![0; 8]);
++    }
++
+     #[test]
+     fn test_rect_rgn() {
+         let (mut d, mut cpu, mut bus) = setup();
