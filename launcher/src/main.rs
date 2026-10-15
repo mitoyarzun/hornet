@@ -98,6 +98,11 @@ fn run_game(systemless: &Path, game: &Path, settings: Settings) -> Result<(), St
     if settings.fullscreen {
         command.arg("--fullscreen");
     }
+    // Without the native integrations, Systemless draws the classic menu bar
+    // in the window and sends Command-key shortcuts to the game as keys.
+    if settings.menu_bar_in_window && cfg!(target_os = "macos") {
+        command.arg("--no-native-integrations");
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -168,6 +173,9 @@ struct Settings {
     width: u16,
     height: u16,
     fullscreen: bool,
+    /// Draw the game's menu bar inside the game window, as on a real Mac.
+    /// The other choice (macOS only) moves the menus to the macOS menu bar.
+    menu_bar_in_window: bool,
 }
 
 impl Default for Settings {
@@ -176,6 +184,7 @@ impl Default for Settings {
             width: 800,
             height: 600,
             fullscreen: false,
+            menu_bar_in_window: true,
         }
     }
 }
@@ -230,7 +239,35 @@ fn choose_settings(current: Settings) -> Settings {
         width,
         height,
         fullscreen,
+        menu_bar_in_window: choose_menu_bar(current.menu_bar_in_window),
     }
+}
+
+/// Only macOS can move the game menus to the system menu bar.
+#[cfg(target_os = "macos")]
+fn choose_menu_bar(current: bool) -> bool {
+    let answer = MessageDialog::new()
+        .set_level(MessageLevel::Info)
+        .set_title(TITLE)
+        .set_description(
+            "Where do you want the game's menu bar?\n\n\
+             In the game window, it looks and works as on a real Mac. In the macOS \
+             menu bar, the Dock shows the game's name and icon.",
+        )
+        .set_buttons(MessageButtons::OkCancelCustom(
+            "In the game window".to_string(),
+            "In the macOS menu bar".to_string(),
+        ))
+        .show();
+    match answer {
+        MessageDialogResult::Custom(label) => label == "In the game window",
+        _ => current,
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn choose_menu_bar(current: bool) -> bool {
+    current
 }
 
 fn parse_settings(text: &str) -> Settings {
@@ -250,6 +287,7 @@ fn parse_settings(text: &str) -> Settings {
                 }
             }
             "fullscreen" => settings.fullscreen = value.trim() == "yes",
+            "menu_bar" => settings.menu_bar_in_window = value.trim() != "macos",
             _ => {}
         }
     }
@@ -264,10 +302,11 @@ fn load_settings() -> Option<Settings> {
 fn save_settings(settings: &Settings) {
     if let Some(dir) = state_dir() {
         let text = format!(
-            "screen={}x{}\nfullscreen={}\n",
+            "screen={}x{}\nfullscreen={}\nmenu_bar={}\n",
             settings.width,
             settings.height,
-            if settings.fullscreen { "yes" } else { "no" }
+            if settings.fullscreen { "yes" } else { "no" },
+            if settings.menu_bar_in_window { "window" } else { "macos" }
         );
         let _ = fs::write(dir.join("settings.txt"), text);
     }
@@ -369,15 +408,18 @@ mod tests {
 
     #[test]
     fn settings_round_trip_through_the_file_format() {
-        let settings = parse_settings("screen=1024x768\nfullscreen=yes\n");
+        let settings = parse_settings("screen=1024x768\nfullscreen=yes\nmenu_bar=macos\n");
         assert_eq!(
             settings,
             Settings {
                 width: 1024,
                 height: 768,
-                fullscreen: true
+                fullscreen: true,
+                menu_bar_in_window: false,
             }
         );
+        // Settings files from before the menu bar choice keep the default.
+        assert!(parse_settings("screen=800x600\nfullscreen=no\n").menu_bar_in_window);
     }
 
     #[test]

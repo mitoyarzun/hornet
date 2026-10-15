@@ -72,7 +72,7 @@ You do not need a terminal.
 2. Double-click **F-A-18 Hornet** (macOS) or **F-A-18 Hornet.exe** (Windows).
 3. At the first start, select your game file in the file dialog.
 4. Select the size of the game screen and the display mode: a window or
-   full screen.
+   full screen. On macOS, also select where the game's menu bar goes.
 
 The launcher remembers the game file, so the next starts go directly to the
 game. If the game file moves, the launcher asks for it again. If the game
@@ -84,6 +84,13 @@ To change the screen size or the display mode later, hold down Shift when
 you start the game. The game screen can be 800 × 600, 1024 × 768 or
 1152 × 870 pixels. A larger screen gives the game room for its larger flight
 views. You can also resize the game window at any time.
+
+On macOS, the game's menu bar can be in the game window or in the macOS menu
+bar. In the game window, it looks and works as on a real Mac, and ⌘ shortcuts
+go to the game as keys. This is the default. In the macOS menu bar, the Dock
+shows the game's name and icon, but Systemless hides the menu bar in the game
+window. The launcher uses the Systemless option `--no-native-integrations`
+for the first choice.
 
 The builds are not signed by a registered developer, so the first start
 needs one extra step:

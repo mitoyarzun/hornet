@@ -23,7 +23,8 @@ If the game file moves, the launcher asks for it again. To use a different
 file on Windows, drag it onto "F-A-18 Hornet.exe".
 
 At the first start, the launcher also asks for the size of the game screen
-and for a window or full screen. To change these settings later, hold down
+and for a window or full screen. On macOS, it also asks where to put the
+game's menu bar. To change these settings later, hold down
 Shift when you start the game.
 
 First start on macOS
