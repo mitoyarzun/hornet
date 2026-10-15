@@ -9,7 +9,7 @@
     <key>CFBundleExecutable</key>
     <string>hornet-launcher</string>
     <key>CFBundleIdentifier</key>
-    <string>io.github.mitoyarzun.fa18-hornet-mac</string>
+    <string>io.github.mitoyarzun.hornet</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>

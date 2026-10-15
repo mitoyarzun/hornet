@@ -46,7 +46,7 @@ increase thrust. Press Delete to set thrust to 100%. Each next press of
 Delete adds one afterburner stage. The Space bar is the brake.
 
 For all controls and known issues, see:
-https://github.com/mitoyarzun/fa18-hornet-mac
+https://github.com/mitoyarzun/hornet
 
 License
 -------

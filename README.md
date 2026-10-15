@@ -59,14 +59,14 @@ The 68K version of the game runs, with two small patches to Systemless.
 
 ## Download
 
-Get a build from the [releases page](https://github.com/mitoyarzun/fa18-hornet-mac/releases).
+Get a build from the [releases page](https://github.com/mitoyarzun/hornet/releases).
 You do not need a terminal.
 
 | Computer | File |
 | --- | --- |
-| Mac with Apple silicon (M1 or later) | `fa18-hornet-mac-VERSION-aarch64-apple-darwin.zip` |
-| Mac with an Intel processor | `fa18-hornet-mac-VERSION-x86_64-apple-darwin.zip` |
-| Windows, 64-bit | `fa18-hornet-mac-VERSION-x86_64-pc-windows-msvc.zip` |
+| Mac with Apple silicon (M1 or later) | `hornet-VERSION-aarch64-apple-darwin.zip` |
+| Mac with an Intel processor | `hornet-VERSION-x86_64-apple-darwin.zip` |
+| Windows, 64-bit | `hornet-VERSION-x86_64-pc-windows-msvc.zip` |
 
 1. Extract the zip file.
 2. Double-click **F-A-18 Hornet** (macOS) or **F-A-18 Hornet.exe** (Windows).
@@ -88,8 +88,8 @@ needs one extra step:
   **Run anyway**.
 
 The launcher keeps the path of the game file and the log of the last game in
-`~/Library/Application Support/fa18-hornet-mac` (macOS) or
-`%APPDATA%\fa18-hornet-mac` (Windows).
+`~/Library/Application Support/hornet` (macOS) or
+`%APPDATA%\hornet` (Windows).
 
 ## Your copy of the game
 

@@ -19,14 +19,14 @@ mkdir -p "$dist"
 if [ "$target" = source ]; then
     # GPL-3.0 corresponding source: Systemless at the pinned commit with the
     # patches applied, without build output or git metadata.
-    name="fa18-hornet-mac-$version-systemless-source"
+    name="hornet-$version-systemless-source"
     tar -czf "$dist/$name.tar.gz" -C "$here/out" \
         --exclude systemless/target --exclude systemless/.git systemless
     echo "$dist/$name.tar.gz"
     exit 0
 fi
 
-name="fa18-hornet-mac-$version-$target"
+name="hornet-$version-$target"
 stage="$here/out/stage/$name"
 rm -rf "$stage"
 mkdir -p "$stage"

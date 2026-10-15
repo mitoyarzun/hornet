@@ -146,7 +146,7 @@ fn systemless_path() -> Option<PathBuf> {
 }
 
 fn state_dir() -> Option<PathBuf> {
-    let dir = dirs::config_dir()?.join("fa18-hornet-mac");
+    let dir = dirs::config_dir()?.join("hornet");
     fs::create_dir_all(&dir).ok()?;
     Some(dir)
 }
