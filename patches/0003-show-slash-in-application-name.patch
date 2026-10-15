@@ -1,0 +1,87 @@
+diff --git a/src/bin/desktop/native_bundle.rs b/src/bin/desktop/native_bundle.rs
+index 391374cb..e83e4663 100644
+--- a/src/bin/desktop/native_bundle.rs
++++ b/src/bin/desktop/native_bundle.rs
+@@ -76,12 +76,7 @@ pub fn prepare_for_game(game_path: &Path) -> Result<Option<NativeBundle>, String
+     let Some(app_path) = runner.dispatcher().launched_app_path() else {
+         return Ok(None);
+     };
+-    let app_name = app_path
+-        .rsplit('/')
+-        .next()
+-        .filter(|name| !name.is_empty())
+-        .unwrap_or(app_path)
+-        .to_owned();
++    let app_name = systemless::game::application_display_name(app_path);
+     drop(runner);
+     let bundle = prepare_bundle(game_path, &app_name)
+         .map_err(|error| format!("could not prepare native identity for {app_name}: {error}"))?;
+diff --git a/src/systems/macintosh/game/application_icon.rs b/src/systems/macintosh/game/application_icon.rs
+index 71894ab5..b687bb7c 100644
+--- a/src/systems/macintosh/game/application_icon.rs
++++ b/src/systems/macintosh/game/application_icon.rs
+@@ -42,12 +42,7 @@ pub struct ApplicationIdentity {
+ pub fn loaded_application_identity(runner: &FixtureRunner) -> Option<ApplicationIdentity> {
+     let dispatcher = runner.dispatcher();
+     let path = dispatcher.launched_app_path()?.to_owned();
+-    let name = path
+-        .rsplit('/')
+-        .next()
+-        .filter(|name| !name.is_empty())
+-        .unwrap_or(path.as_str())
+-        .to_owned();
++    let name = application_display_name(&path);
+     let resource_key = dispatcher.find_vfs_rsrc_file(&path);
+     let metadata = resource_key
+         .as_ref()
+@@ -67,6 +62,20 @@ pub fn loaded_application_identity(runner: &FixtureRunner) -> Option<Application
+     Some(ApplicationIdentity { path, name, icon })
+ }
+ 
++/// Return the Finder name of the application at a VFS path.
++///
++/// The VFS separates folders with `/` and stores a `/` inside an HFS name as
++/// U+F02F. Put the `/` back, so "F/A-18 Hornet" does not show U+F02F on the
++/// host. Inside Macintosh: Files (1992), pp. 2-27 to 2-30.
++pub fn application_display_name(vfs_path: &str) -> String {
++    vfs_path
++        .rsplit('/')
++        .next()
++        .filter(|name| !name.is_empty())
++        .unwrap_or(vfs_path)
++        .replace('\u{F02F}', "/")
++}
++
+ /// Decode the Finder icon family associated with an application resource fork.
+ pub fn application_icon_from_fork(
+     fork: &ResourceFork,
+@@ -279,6 +288,15 @@ mod tests {
+         (resource_type, id, data)
+     }
+ 
++    #[test]
++    fn application_display_name_restores_hfs_slash() {
++        assert_eq!(
++            application_display_name("Hornet Folder/F\u{F02F}A-18 Hornet 2.0.1"),
++            "F/A-18 Hornet 2.0.1"
++        );
++        assert_eq!(application_display_name("Tomb Raider"), "Tomb Raider");
++    }
++
+     fn bundle(signature: [u8; 4], application_icon_id: i16) -> Vec<u8> {
+         let mut data = Vec::new();
+         data.extend_from_slice(&signature);
+diff --git a/src/systems/macintosh/game/mod.rs b/src/systems/macintosh/game/mod.rs
+index 60faee28..6fed1d16 100644
+--- a/src/systems/macintosh/game/mod.rs
++++ b/src/systems/macintosh/game/mod.rs
+@@ -12,7 +12,8 @@ mod stuffit_paths;
+ pub(crate) mod vise;
+ 
+ pub use application_icon::{
+-    application_icon_from_fork, loaded_application_identity, ApplicationIcon,
++    application_display_name, application_icon_from_fork, loaded_application_identity,
++    ApplicationIcon,
+     ApplicationIconRepresentation, ApplicationIdentity,
+ };
+ pub use launch::{

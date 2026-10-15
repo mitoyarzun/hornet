@@ -1,0 +1,58 @@
+diff --git a/src/systems/macintosh/trap/pict.rs b/src/systems/macintosh/trap/pict.rs
+index 3ba1ee63..70c2186b 100644
+--- a/src/systems/macintosh/trap/pict.rs
++++ b/src/systems/macintosh/trap/pict.rs
+@@ -639,7 +639,16 @@ pub fn draw_picture(
+                 pos += 4;
+             }
+             0x0C => {
+-                // Origin (4 bytes)
++                // Origin(dh, dv): the application called SetOrigin while it
++                // recorded the picture. Later coordinates are local to the
++                // moved origin, so a recorded point p draws at p - (dh, dv)
++                // in picture-frame coordinates. Imaging With QuickDraw
++                // (1994), pp. 2-37 and A-6. F/A-18 Hornet 2.0 moves the
++                // origin between the blocks of its mission briefing.
++                let dh = bus.read_word(pos) as i16;
++                let dv = bus.read_word(pos + 2) as i16;
++                frame_left = frame_left.wrapping_add(dh);
++                frame_top = frame_top.wrapping_add(dv);
+                 pos += 4;
+             }
+             0x0D => {
+diff --git a/src/systems/macintosh/trap/pict/tests.rs b/src/systems/macintosh/trap/pict/tests.rs
+index a7d0d7e7..65ea31e4 100644
+--- a/src/systems/macintosh/trap/pict/tests.rs
++++ b/src/systems/macintosh/trap/pict/tests.rs
+@@ -242,6 +242,31 @@ fn pict_v1_dvtext_keeps_the_previous_text_origin() {
+         .any(|row| row[16..48].contains(&255)));
+ }
+ 
++#[test]
++fn pict_origin_opcode_moves_later_coordinates() {
++    // A recorded SetOrigin(dh, dv) makes later points draw at p - (dh, dv).
++    // Imaging With QuickDraw 1994, pp. 2-37 and A-6.
++    let frame = (0, 0, 64, 96);
++    let mut moved = Vec::new();
++    super::recording_push_word(&mut moved, 0x000C);
++    moved.extend_from_slice(&5i16.to_be_bytes());
++    moved.extend_from_slice(&(-30i16).to_be_bytes());
++    super::recording_push_long_text(&mut moved, 10, 20, b"X");
++    let moved = super::finish_recording(frame, moved);
++
++    let mut absolute = Vec::new();
++    super::recording_push_long_text(&mut absolute, 40, 15, b"X");
++    let absolute = super::finish_recording(frame, absolute);
++
++    let actual = render_text_picture(&moved, 96, 64);
++    let expected = render_text_picture(&absolute, 96, 64);
++    assert_eq!(actual, expected);
++    assert!(expected
++        .chunks_exact(96)
++        .skip(30)
++        .any(|row| row[10..30].contains(&255)));
++}
++
+ fn render_v1_styled_text_pair(face: u8, missing: bool) -> (Vec<u8>, Vec<u8>) {
+     let glyph_advance = i16::from(
+         crate::quickdraw::text::get_glyph(3, 9, 'A')

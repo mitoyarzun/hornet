@@ -18,7 +18,7 @@ Mac ROM, no System software and no machine emulator.
 An AI agent did most of the work in this project. Claude Code, from Anthropic,
 did these tasks:
 
-- It found the cause of the failures and wrote the two Systemless patches.
+- It found the causes of the failures and wrote the five Systemless patches.
 - It wrote the launcher, the scripts, the release workflow and this README.
 - It made the screenshots and the video with automated, headless runs.
 
@@ -44,7 +44,7 @@ full flight.
 
 ## Status
 
-The 68K version of the game runs, with two small patches to Systemless.
+The 68K version of the game runs, with five small patches to Systemless.
 
 - **Retail 2.0.1:** the game starts directly from the installer disc. These
   parts work: registration, the pilot dossier, the briefing, the menus, the
@@ -111,7 +111,8 @@ on the disc. The test used a Toast image of the disc (volume
 
 At the first start, the game asks for the serial number. The serial number is
 on the Product Registration card, in the back of the Pilot Flight Manual. The
-disc also contains the full manual as `Hornet 2.0 Manual.pdf`.
+game asks one time only. The disc also contains the full manual as
+`Hornet 2.0 Manual.pdf`.
 
 To make a disk image from the original CD on a Mac, use these commands. We
 did not test them.
@@ -191,8 +192,9 @@ ffmpeg at 30 frames per second.
 
 ## The patches
 
-Both patches apply to Systemless commit `38666a8` (version 0.96.0). The
-Systemless library tests pass with the patches.
+The patches apply in order to Systemless commit `38666a8` (version 0.96.0).
+The Systemless library tests pass with the patches. Each patch adds unit tests
+for its change.
 
 **`0001-open-hfs-basenames-containing-slash.patch`** is the important patch.
 Without it, the game shows "Sorry, I can't find the file "F/A-18 Data"".
@@ -217,6 +219,33 @@ regression.
 already has `LMSetTEScrpLength`. The patch adds the missing alias. This patch
 alone does not make the PowerPC version run.
 
+**`0003-show-slash-in-application-name.patch`** corrects the window title.
+Systemless made the window title, the Dock name and the menu bar name from
+the stored filename. Thus the title showed U+F02F in place of the `/`, for
+example "F?A-18 Hornet 2.0.1". The patch changes U+F02F back to `/` in these
+names.
+
+**`0004-persist-application-resource-changes.patch`** keeps the registration.
+Without it, the game asks for the serial number at each start.
+
+- The game keeps the serial number in the resource `'DATA'` 128 of its own
+  application file. It calls `ChangedResource` and `WriteResource`.
+- Systemless keeps the resources of the application in a resource map with
+  reference number 0. `WriteResource` did not write this map back to the
+  application file, so the desktop save store did not save the change.
+- The patch writes the changed resources of the map back to the application
+  file. Unchanged resources keep their bytes from the file. This is
+  necessary, because the loader relocates the code in memory.
+- At the next start, Systemless restores the saved application file after it
+  loads the resources. The patch then takes the resource data from the
+  restored file.
+
+**`0005-apply-pict-origin-opcode.patch`** corrects the retail Briefing page.
+The game draws the page as one picture. Between the text blocks, the picture
+contains the `Origin` opcode (`$000C`), which records a `SetOrigin` call.
+Systemless skipped this opcode, so it drew the "Notes" paragraph on top of
+the mission block. The patch moves the coordinates that follow the opcode.
+
 ## Things to know
 
 - **Select the game application.** The demo archive also contains a
@@ -236,18 +265,15 @@ alone does not make the PowerPC version run.
   Systemless does not have this driver, so *Network Host* and
   *Network Join* stay disabled.
 - **Saved files.** Systemless keeps saved files in `.systemless/saves/`,
-  beside your game archive. The game keeps its registration in its
-  preferences file, so you probably register only once. We did not verify
-  this.
+  beside your game archive. This folder contains the preferences and a copy
+  of the registered application. If you delete it, the game asks for the
+  serial number again.
 - **Automatic test.** `play/fly-demo.json` flies the demo without a window. It
   waits for the sky color in the cockpit and checks the instrument panel. It
   fails if the data-file bug comes back.
 
 ## Known issues
 
-- On the retail Briefing page, the game draws the mission paragraph on top
-  of a different text block, so you cannot read it. The Time, Conditions and
-  Destination lines below it are correct.
 - Joysticks are not tested.
 
 ## Not done yet

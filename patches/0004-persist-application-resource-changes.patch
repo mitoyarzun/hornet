@@ -1,0 +1,232 @@
+diff --git a/src/systems/macintosh/runner/mod.rs b/src/systems/macintosh/runner/mod.rs
+index 4b051374..12c9f996 100644
+--- a/src/systems/macintosh/runner/mod.rs
++++ b/src/systems/macintosh/runner/mod.rs
+@@ -3505,6 +3505,10 @@ impl FixtureRunner {
+                 metadata.modified_date = file.modified_date;
+             }
+         });
++        if self.dispatcher.application_resource_fork_key().as_deref() == Some(normalized.as_str()) {
++            self.dispatcher
++                .refresh_application_resources_from_vfs(&mut self.bus);
++        }
+     }
+ 
+     /// Copy one loaded archive file to another guest VFS path while preserving
+diff --git a/src/systems/macintosh/trap/resource.rs b/src/systems/macintosh/trap/resource.rs
+index bd2af514..b746d3d7 100644
+--- a/src/systems/macintosh/trap/resource.rs
++++ b/src/systems/macintosh/trap/resource.rs
+@@ -1551,6 +1551,23 @@ impl super::TrapDispatcher {
+         res_id: i16,
+         ptr: u32,
+     ) -> Option<Vec<u8>> {
++        // The loader relocates the application's code and data resources in
++        // memory. For the application file, take from memory only the
++        // resources that the application marked with ChangedResource, and keep
++        // the file bytes of all other resources.
++        if refnum == 0 {
++            let changed = self
++                .resources
++                .as_ref()
++                .and_then(|resources| resources.files.get(&0))
++                .and_then(|file| file.attrs.get(&(res_type, res_id)))
++                .is_some_and(|attrs| (*attrs & Self::RES_CHANGED_ATTR as u8) != 0);
++            if !changed {
++                if let Some(data) = self.resource_backing_data.get(&(0, res_type, res_id)) {
++                    return Some(data.clone());
++                }
++            }
++        }
+         let live_ptr = self
+             .handle_for_ptr(ptr)
+             .map(|handle| bus.read_long(handle))
+@@ -1730,9 +1747,19 @@ impl super::TrapDispatcher {
+     }
+ 
+     pub(crate) fn flush_resource_file_refnum(&mut self, bus: &MacMemoryBus, refnum: u16) -> bool {
+-        if refnum == 0 {
+-            return false;
+-        }
++        // Refnum 0 is the resource fork of the application itself. Its map is
++        // named "Application", so write it back to the launched application
++        // file. Games such as F/A-18 Hornet 2.0 keep their registration in an
++        // application resource and call WriteResource on it.
++        // Inside Macintosh: More Macintosh Toolbox (1993), pp. 1-109 to 1-111.
++        let application_key = if refnum == 0 {
++            let Some(key) = self.application_resource_fork_key() else {
++                return false;
++            };
++            Some(key)
++        } else {
++            None
++        };
+         let Some((file_name, bytes)) = (|| {
+             let resources = self.resources.as_ref()?;
+             let file = resources.files.get(&refnum)?;
+@@ -1746,7 +1773,10 @@ impl super::TrapDispatcher {
+             ) {
+                 return None;
+             }
+-            let file_name = resources.names.get(&refnum)?.clone();
++            let file_name = match &application_key {
++                Some(key) => key.clone(),
++                None => resources.names.get(&refnum)?.clone(),
++            };
+             let bytes = self.serialize_resource_file_map_for_writeback(bus, refnum, file)?;
+             Some((file_name, bytes))
+         })() else {
+@@ -1770,6 +1800,52 @@ impl super::TrapDispatcher {
+         true
+     }
+ 
++    /// Return the VFS key of the launched application's resource fork.
++    pub(crate) fn application_resource_fork_key(&self) -> Option<String> {
++        let path = self.launched_app_path()?.to_owned();
++        self.find_vfs_rsrc_file(&path)
++    }
++
++    /// Take the application's resource data from its VFS resource fork.
++    ///
++    /// A frontend restores saved files after the application's resource map
++    /// is loaded. If a saved copy of the application file replaces its
++    /// resource fork, use that data for the resources in the map, so changes
++    /// that the application wrote with WriteResource survive a restart.
++    /// Return the number of resources that changed.
++    pub(crate) fn refresh_application_resources_from_vfs(&mut self, bus: &mut MacMemoryBus) -> usize {
++        let Some(key) = self.application_resource_fork_key() else {
++            return 0;
++        };
++        let Some(fork) = self.vfs_rsrc.get(&key).and_then(|bytes| ResourceFork::parse(bytes)) else {
++            return 0;
++        };
++        let mut changed = 0;
++        for (&(res_type, res_id), resource) in fork.resources() {
++            let Some(loaded_ptr) = self.resources.as_ref().and_then(|resources| {
++                let file = resources.files.get(&0)?;
++                file.attrs.get(&(res_type, res_id))?;
++                Some(file.loaded.get(&(res_type, res_id)).copied())
++            }) else {
++                continue;
++            };
++            if self.resource_backing_data.get(&(0, res_type, res_id)) == Some(&resource.data) {
++                continue;
++            }
++            if let Some(ptr) = loaded_ptr.filter(|&ptr| ptr != 0) {
++                // A resource that is already in memory keeps its block. Only
++                // replace the bytes when the size is the same.
++                if bus.get_alloc_size(ptr) != Some(resource.data.len() as u32) {
++                    continue;
++                }
++                bus.write_bytes(ptr, &resource.data);
++            }
++            self.remember_resource_backing_data(0, res_type, res_id, resource.data.clone());
++            changed += 1;
++        }
++        changed
++    }
++
+     pub(crate) fn dispatch_resource<C: CpuOps>(
+         &mut self,
+         is_tool: bool,
+diff --git a/src/systems/macintosh/trap/resource/tests.rs b/src/systems/macintosh/trap/resource/tests.rs
+index 8a356cba..0e9b16d4 100644
+--- a/src/systems/macintosh/trap/resource/tests.rs
++++ b/src/systems/macintosh/trap/resource/tests.rs
+@@ -11350,3 +11350,96 @@ fn fsdispatch_pbgetcatinfo_preserves_literal_slash_and_macroman_basename() {
+         assert!(disp.vfs.contains_key(&path) || directory);
+     }
+ }
++
++fn application_fork_for_test(data: &[u8], code: &[u8]) -> Vec<u8> {
++    use crate::managers::resource::{serialize_resource_fork, ResourceForkEntry};
++    serialize_resource_fork(&[
++        ResourceForkEntry {
++            res_type: *b"DATA",
++            id: 128,
++            name: Vec::new(),
++            data: data.to_vec(),
++            attrs: 0,
++        },
++        ResourceForkEntry {
++            res_type: *b"CODE",
++            id: 1,
++            name: Vec::new(),
++            data: code.to_vec(),
++            attrs: 0,
++        },
++    ])
++    .unwrap()
++}
++
++/// Load an application map (refnum 0) with DATA 128 and a CODE 1 resource
++/// whose bytes in memory differ from the file, as after relocation.
++fn setup_application_resources_for_writeback(
++    disp: &mut super::super::TrapDispatcher,
++    bus: &mut crate::memory::MacMemoryBus,
++) -> (u32, u32) {
++    let data_ptr = bus.alloc(4);
++    bus.write_bytes(data_ptr, b"OLD!");
++    let code_ptr = bus.alloc(4);
++    bus.write_bytes(code_ptr, b"RELO");
++    let file = ResourceFileMap {
++        loaded: HashMap::from([((*b"DATA", 128), data_ptr), ((*b"CODE", 1), code_ptr)]),
++        named: HashMap::new(),
++        names_by_id: HashMap::new(),
++        attrs: HashMap::from([((*b"DATA", 128), 0), ((*b"CODE", 1), 0)]),
++        map_attrs: 0,
++    };
++    disp.set_loaded_resources_for_test(LoadedResources {
++        files: HashMap::from([(0, file)]),
++        names: HashMap::from([(0, "Application".to_string())]),
++        search_order: vec![0],
++        current_file: 0,
++    });
++    disp.remember_resource_backing_data(0, *b"DATA", 128, b"OLD!".to_vec());
++    disp.remember_resource_backing_data(0, *b"CODE", 1, b"FILE".to_vec());
++    disp.vfs_rsrc.insert(
++        "Apps/Game".to_string(),
++        application_fork_for_test(b"OLD!", b"FILE"),
++    );
++    disp.set_launched_app_path("Apps/Game");
++    (data_ptr, code_ptr)
++}
++
++// Inside Macintosh: More Macintosh Toolbox (1993), pp. 1-109 to 1-111:
++// WriteResource writes a changed resource to its resource file. The
++// application's own resources live in refnum 0, whose file is the launched
++// application.
++#[test]
++fn writeresource_on_application_resource_updates_launched_application_fork() {
++    let (mut disp, mut cpu, mut bus) = setup();
++    let (data_ptr, _) = setup_application_resources_for_writeback(&mut disp, &mut bus);
++    let handle = disp.get_or_create_resource_handle(&mut bus, *b"DATA", 128, data_ptr);
++    bus.write_bytes(data_ptr, b"NEW!");
++
++    bus.write_long(TEST_SP, handle);
++    call(&mut disp, true, 0x1AA, &mut cpu, &mut bus).unwrap(); // ChangedResource
++    cpu.write_reg(Register::A7, TEST_SP);
++    bus.write_long(TEST_SP, handle);
++    call(&mut disp, true, 0x1B0, &mut cpu, &mut bus).unwrap(); // WriteResource
++
++    let fork =
++        crate::managers::resource::ResourceFork::parse(disp.vfs_rsrc.get("Apps/Game").unwrap())
++            .unwrap();
++    assert_eq!(fork.get(*b"DATA", 128).unwrap().data, b"NEW!");
++    // Unchanged resources keep their file bytes, not the relocated memory.
++    assert_eq!(fork.get(*b"CODE", 1).unwrap().data, b"FILE");
++}
++
++#[test]
++fn restored_application_fork_replaces_application_resource_data() {
++    let (mut disp, _cpu, mut bus) = setup();
++    let (data_ptr, code_ptr) = setup_application_resources_for_writeback(&mut disp, &mut bus);
++    disp.vfs_rsrc.insert(
++        "Apps/Game".to_string(),
++        application_fork_for_test(b"NEW!", b"FILE"),
++    );
++
++    assert_eq!(disp.refresh_application_resources_from_vfs(&mut bus), 1);
++    assert_eq!(bus.read_bytes(data_ptr, 4), b"NEW!");
++    assert_eq!(bus.read_bytes(code_ptr, 4), b"RELO");
++}
