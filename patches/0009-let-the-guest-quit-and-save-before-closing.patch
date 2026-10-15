@@ -1,0 +1,348 @@
+diff --git a/src/bin/desktop/runtime_driver.rs b/src/bin/desktop/runtime_driver.rs
+index 8dbbd96d..3acc07e2 100644
+--- a/src/bin/desktop/runtime_driver.rs
++++ b/src/bin/desktop/runtime_driver.rs
+@@ -432,6 +432,13 @@ impl GuiDriver {
+         }
+     }
+ 
++    /// Ask the guest to quit through its 'quit' Apple event handler.
++    pub(super) fn request_guest_quit(&mut self) -> bool {
++        self.runner
++            .as_mut()
++            .is_some_and(FixtureRunner::request_guest_quit)
++    }
++
+     pub(super) fn guest_requested_exit(&self) -> bool {
+         self.runner
+             .as_ref()
+diff --git a/src/bin/systemless.rs b/src/bin/systemless.rs
+index b7356f56..f2b46a5f 100644
+--- a/src/bin/systemless.rs
++++ b/src/bin/systemless.rs
+@@ -895,6 +895,10 @@ struct App {
+         winit::event_loop::EventLoopProxy<()>,
+     )>,
+     closing: bool,
++    /// Set when the window close asked the guest to quit. The serial runtime
++    /// closes when the guest exits, or at this time if the guest ignores the
++    /// request (for example, a game in the middle of a flight).
++    guest_quit_deadline: Option<std::time::Instant>,
+     runtime_error: Option<String>,
+     force_next_render: bool,
+     last_presented_guest_tick: Option<u32>,
+@@ -1076,6 +1080,7 @@ impl App {
+             #[cfg(target_os = "macos")]
+             native_startup_fallback: None,
+             closing: false,
++            guest_quit_deadline: None,
+             runtime_error: None,
+             force_next_render: true,
+             last_presented_guest_tick: None,
+@@ -1221,6 +1226,22 @@ impl App {
+         }
+     }
+ 
++    fn close_serial_runtime(&mut self, event_loop: &ActiveEventLoop) {
++        self.driver
++            .as_mut()
++            .expect("serial runtime")
++            .sync_save_files(true);
++        eprintln!(
++            "[SYSTEMLESS] Window closed. Total instructions: {}",
++            self.driver
++                .as_mut()
++                .expect("serial runtime")
++                .total_instructions
++        );
++        systemless::runner::dump_wait_stats();
++        event_loop.exit();
++    }
++
+     fn poll_owner(&mut self, event_loop: &ActiveEventLoop) {
+         use runtime_mailbox::RuntimeStatus;
+         #[cfg(target_os = "macos")]
+@@ -3029,19 +3050,22 @@ impl ApplicationHandler for App {
+                     self.poll_owner(event_loop);
+                     return;
+                 }
+-                self.driver
+-                    .as_mut()
+-                    .expect("serial runtime")
+-                    .sync_save_files(true);
+-                eprintln!(
+-                    "[SYSTEMLESS] Window closed. Total instructions: {}",
+-                    self.driver
++                // Let the guest quit as it would at Shut Down, so it can write
++                // files such as its preferences. Macintosh Toolbox Essentials
++                // (1992), pp. 2-30 to 2-32.
++                if self.guest_quit_deadline.is_none()
++                    && self
++                        .driver
+                         .as_mut()
+                         .expect("serial runtime")
+-                        .total_instructions
+-                );
+-                systemless::runner::dump_wait_stats();
+-                event_loop.exit();
++                        .request_guest_quit()
++                {
++                    eprintln!("[SYSTEMLESS] Window close: asked the guest to quit");
++                    self.guest_quit_deadline =
++                        Some(std::time::Instant::now() + GUEST_QUIT_TIMEOUT);
++                    return;
++                }
++                self.close_serial_runtime(event_loop);
+             }
+ 
+             WindowEvent::CursorEntered { .. } => {
+@@ -3184,6 +3208,14 @@ impl ApplicationHandler for App {
+             driver.render_headroom = self.render_headroom;
+         }
+ 
++        if self
++            .guest_quit_deadline
++            .is_some_and(|deadline| std::time::Instant::now() >= deadline)
++        {
++            eprintln!("[SYSTEMLESS] The guest did not quit in time; closing");
++            self.close_serial_runtime(event_loop);
++            return;
++        }
+         self.driver
+             .as_mut()
+             .expect("serial runtime")
+@@ -3322,6 +3354,9 @@ impl ApplicationHandler for App {
+     }
+ }
+ 
++/// How long a window close waits for the guest to quit by itself.
++const GUEST_QUIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
++
+ fn run_gui(
+     game_path: PathBuf,
+     arrows_as_numpad: bool,
+@@ -3333,7 +3368,19 @@ fn run_gui(
+     fullscreen: bool,
+     debug_socket: Option<PathBuf>,
+ ) {
+-    let event_loop = EventLoop::new().expect("Failed to create event loop");
++    let mut event_loop_builder = EventLoop::builder();
++    // Without the native integrations, the guest draws its own menu bar. The
++    // winit default menu would then own Command-Q and end the process before
++    // the guest can quit and write its files, so leave Command keys to the
++    // guest, as on a classic Mac.
++    #[cfg(target_os = "macos")]
++    if !native_integrations {
++        use winit::platform::macos::EventLoopBuilderExtMacOS;
++        event_loop_builder.with_default_menu(false);
++    }
++    let event_loop = event_loop_builder
++        .build()
++        .expect("Failed to create event loop");
+     eprintln!(
+         "[SYSTEMLESS] GUI arrow keys: {}",
+         if arrows_as_numpad {
+diff --git a/src/systems/macintosh/runner/mod.rs b/src/systems/macintosh/runner/mod.rs
+index 12c9f996..def2018d 100644
+--- a/src/systems/macintosh/runner/mod.rs
++++ b/src/systems/macintosh/runner/mod.rs
+@@ -3081,6 +3081,22 @@ impl FixtureRunner {
+     /// Route a host-presented menu selection back through the guest's normal
+     /// mouseDown -> FindWindow -> MenuSelect path.  Returns false if the menu
+     /// or item is no longer present, enabled, and selectable.
++    /// Ask the guest application to quit through its own 'quit' Apple event
++    /// handler, so it can write its files first. Return false if the guest
++    /// has no such handler or its work is suspended.
++    pub fn request_guest_quit(&mut self) -> bool {
++        if self.guest_work_is_suspended() {
++            return false;
++        }
++        self.dispatcher.read_tick_count(&self.bus);
++        if !self.dispatcher.queue_quit_application_event() {
++            return false;
++        }
++        self.wake_pending_wait_next_event_if_input_available();
++        self.wake_foreground_after_input();
++        true
++    }
++
+     pub fn select_guest_menu_item(&mut self, menu_id: i16, item_number: i16) -> bool {
+         if self.guest_work_is_suspended() {
+             return false;
+diff --git a/src/systems/macintosh/trap/event.rs b/src/systems/macintosh/trap/event.rs
+index 616702c0..25cf15ec 100644
+--- a/src/systems/macintosh/trap/event.rs
++++ b/src/systems/macintosh/trap/event.rs
+@@ -389,6 +389,30 @@ impl super::TrapDispatcher {
+         self.flushed_update_events.push_back(event.clone());
+     }
+ 
++    /// Queue a Quit Application Apple event, as the Finder sends at Shut
++    /// Down. Return false if the application has no 'quit' handler; then
++    /// the host must stop it without the application's own quit code.
++    /// Macintosh Toolbox Essentials (1992), pp. 2-30 to 2-32.
++    pub(crate) fn queue_quit_application_event(&mut self) -> bool {
++        const K_AE_QUIT_APPLICATION: u32 = 0x7175_6974; // 'quit'
++        if self
++            .apple_event_handler_for(Self::K_CORE_EVENT_CLASS, K_AE_QUIT_APPLICATION)
++            .is_none()
++        {
++            return false;
++        }
++        let tick = self.current_tick();
++        self.event_queue.push_back(super::dispatch::QueuedEvent {
++            what: Self::K_HIGH_LEVEL_EVENT,
++            message: Self::K_CORE_EVENT_CLASS,
++            when: tick,
++            where_v: (K_AE_QUIT_APPLICATION >> 16) as i16,
++            where_h: (K_AE_QUIT_APPLICATION & 0xFFFF) as i16,
++            modifiers: 0,
++        });
++        true
++    }
++
+     fn enqueue_open_application_event_if_needed(&mut self, event_mask: u16) {
+         // The Finder sends required launch Apple events only to applications
+         // whose 'SIZE' resource declares isHighLevelEventAware. Applications
+diff --git a/src/systems/macintosh/trap/toolbox.rs b/src/systems/macintosh/trap/toolbox.rs
+index ad506693..ae7cd121 100644
+--- a/src/systems/macintosh/trap/toolbox.rs
++++ b/src/systems/macintosh/trap/toolbox.rs
+@@ -1286,7 +1286,7 @@ impl super::TrapDispatcher {
+         }
+     }
+ 
+-    fn apple_event_handler_for(
++    pub(crate) fn apple_event_handler_for(
+         &self,
+         event_class: u32,
+         event_id: u32,
+@@ -8706,6 +8706,17 @@ impl super::TrapDispatcher {
+                     let event_record = bus.read_long(sp);
+                     let event_id = ((bus.read_word(event_record + 10) as u32) << 16)
+                         | bus.read_word(event_record + 12) as u32;
++                    // A high-level EventRecord names the Apple event: its
++                    // message is the event class and its where field the
++                    // event ID. Dispatch that handler, so a queued Quit
++                    // Application event reaches the 'quit' handler.
++                    // Interapplication Communication (1993), pp. 4-66 to 4-68.
++                    let (ae_class, ae_id) =
++                        if bus.read_word(event_record) == Self::K_HIGH_LEVEL_EVENT {
++                            (bus.read_long(event_record + 2), event_id)
++                        } else {
++                            (oapp_class, oapp_id)
++                        };
+                     if bus.read_word(event_record) == Self::K_HIGH_LEVEL_EVENT
+                         && bus.read_long(event_record + 2) == oapp_class
+                         && event_id == oapp_id
+@@ -8730,7 +8741,7 @@ impl super::TrapDispatcher {
+                             bus.read_word(event_record + 14)
+                         );
+                     }
+-                    if let Some(handler) = self.apple_event_handler_for(oapp_class, oapp_id) {
++                    if let Some(handler) = self.apple_event_handler_for(ae_class, ae_id) {
+                         let handler_ptr = handler.procedure.original_pointer;
+                         let refcon = handler.refcon;
+                         // Lazily allocate the trampoline on first use.
+@@ -8768,7 +8779,7 @@ impl super::TrapDispatcher {
+                             return return_allocation_failure(cpu, bus);
+                         }
+                         self.write_synthetic_apple_event_descriptor(
+-                            bus, event_desc, oapp_class, oapp_id,
++                            bus, event_desc, ae_class, ae_id,
+                         );
+                         if bus.read_long(event_desc + 4) == 0 {
+                             self.dispose_owned_ae_callback_descriptor(bus, event_desc);
+@@ -8810,11 +8821,15 @@ impl super::TrapDispatcher {
+                             owned_descriptors: Some((event_desc, reply_desc)),
+                             resolve_state: None,
+                         });
+-                        self.fired_oapp_handler = true;
++                        if (ae_class, ae_id) == (oapp_class, oapp_id) {
++                            self.fired_oapp_handler = true;
++                        }
+ 
+                         eprintln!(
+-                            "[AE] ProcessAppleEvent → invoking 'oapp' handler ${:08X} via trampoline ${:08X}",
+-                            handler_ptr, trampoline,
++                            "[AE] ProcessAppleEvent → invoking '{}' handler ${:08X} via trampoline ${:08X}",
++                            format_fourcc(ae_id),
++                            handler_ptr,
++                            trampoline,
+                         );
+ 
+                         match handler.procedure.isa {
+diff --git a/src/systems/macintosh/trap/toolbox/tests.rs b/src/systems/macintosh/trap/toolbox/tests.rs
+index 356e1832..0ccfc42a 100644
+--- a/src/systems/macintosh/trap/toolbox/tests.rs
++++ b/src/systems/macintosh/trap/toolbox/tests.rs
+@@ -20894,3 +20894,69 @@ fn secs2date_and_date2secs_roundtrip() {
+     assert!(result.unwrap().is_ok());
+     assert_eq!(cpu.read_reg(Register::D0), secs);
+ }
++
++fn install_core_apple_event_handler_for_test(
++    disp: &mut TrapDispatcher,
++    cpu: &mut MockCpu,
++    bus: &mut MacMemoryBus,
++    event_id: &[u8; 4],
++    handler_ptr: u32,
++) {
++    let sp = TEST_SP;
++    cpu.write_reg(Register::A7, sp);
++    cpu.write_reg(Register::D0, 0x091F); // AEInstallEventHandler
++    bus.write_word(sp, 0);
++    bus.write_long(sp + 2, 0x29);
++    bus.write_long(sp + 6, handler_ptr);
++    bus.write_long(sp + 10, u32::from_be_bytes(*event_id));
++    bus.write_long(sp + 14, u32::from_be_bytes(*b"aevt"));
++    bus.write_word(sp + 18, 0xBEEF);
++    disp.dispatch_toolbox(true, 0x016, cpu, bus)
++        .unwrap()
++        .unwrap();
++}
++
++// The Finder asks an application to quit with a Quit Application Apple
++// event, and AEProcessAppleEvent calls the handler for that event.
++// Macintosh Toolbox Essentials (1992), pp. 2-30 to 2-32; Interapplication
++// Communication (1993), pp. 4-66 to 4-68.
++#[test]
++fn queued_quit_application_event_reaches_the_quit_handler() {
++    let (mut disp, mut cpu, mut bus) = setup();
++    let sp = TEST_SP;
++    let event_record_ptr = 0x0032_0000u32;
++    let oapp_handler = 0x0040_8000u32;
++    let quit_handler = 0x0040_9000u32;
++    assert!(!disp.queue_quit_application_event());
++    install_core_apple_event_handler_for_test(&mut disp, &mut cpu, &mut bus, b"oapp", oapp_handler);
++    install_core_apple_event_handler_for_test(&mut disp, &mut cpu, &mut bus, b"quit", quit_handler);
++
++    assert!(disp.queue_quit_application_event());
++    let (what, message, when, where_v, where_h, modifiers, delivered) =
++        disp.dequeue_toolbox_event(&mut cpu, &mut bus, 0xFFFF);
++    assert!(delivered);
++    assert_eq!(what, 23);
++    assert_eq!(message, u32::from_be_bytes(*b"aevt"));
++    assert_eq!(
++        ((where_v as u16 as u32) << 16) | where_h as u16 as u32,
++        u32::from_be_bytes(*b"quit")
++    );
++    bus.write_word(event_record_ptr, what);
++    bus.write_long(event_record_ptr + 2, message);
++    bus.write_long(event_record_ptr + 6, when);
++    bus.write_word(event_record_ptr + 10, where_v as u16);
++    bus.write_word(event_record_ptr + 12, where_h as u16);
++    bus.write_word(event_record_ptr + 14, modifiers);
++
++    cpu.write_reg(Register::A7, sp);
++    cpu.write_reg(Register::PC, 0x00F0_1234);
++    cpu.write_reg(Register::D0, 0x021B); // AEProcessAppleEvent
++    bus.write_long(sp, event_record_ptr);
++    bus.write_word(sp + 4, 0xBEEF);
++    disp.dispatch_toolbox(true, 0x016, &mut cpu, &mut bus)
++        .unwrap()
++        .unwrap();
++
++    assert_eq!(cpu.read_reg(Register::PC), quit_handler);
++    assert!(!disp.fired_oapp_handler);
++}

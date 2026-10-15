@@ -18,7 +18,7 @@ Mac ROM, no System software and no machine emulator.
 An AI agent did most of the work in this project. Claude Code, from Anthropic,
 did these tasks:
 
-- It found the causes of the failures and wrote the eight Systemless patches.
+- It found the causes of the failures and wrote the nine Systemless patches.
 - It wrote the launcher, the scripts, the release workflow and this README.
 - It made the screenshots and the video with automated, headless runs.
 
@@ -44,7 +44,7 @@ full flight.
 
 ## Status
 
-The 68K version of the game runs, with eight small patches to Systemless.
+The 68K version of the game runs, with nine small patches to Systemless.
 
 - **Retail 2.0.1:** the game starts directly from the installer disc. These
   parts work: registration, the pilot dossier, the briefing, the menus, the
@@ -284,6 +284,21 @@ flight, the game does not call `MenuSelect`, so it received the click on each
 tick, and the keys behind it waited. The keyboard stopped for about 30
 seconds. With the patch, the click and its command expire 2 seconds after
 the game first receives it.
+
+**`0009-let-the-guest-quit-and-save-before-closing.patch`** keeps the game's
+preferences, for example the size of the flight window. The game writes its
+preferences file only when it quits. Before the patch, a click on the close
+button of the window, or ⌘Q, stopped Systemless at once, so the game did not
+write the file.
+
+- When the game draws its own menu bar, Systemless no longer installs the
+  default macOS menu. ⌘Q then goes to the game, as on a real Mac, and the
+  game quits through its File menu.
+- The close button sends the game a Quit Application Apple event, as the
+  Finder does at Shut Down. Systemless closes when the game exits, or after
+  5 seconds if the game does not answer, for example during a flight.
+- `AEProcessAppleEvent` called the Open Application handler for each Apple
+  event. It now calls the handler for the event class and ID.
 
 ## Things to know
 
