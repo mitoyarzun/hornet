@@ -10,7 +10,7 @@
 use rfd::{FileDialog, MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 
 const TITLE: &str = "F/A-18 Hornet 2.0";
 
@@ -88,9 +88,11 @@ fn run_game(systemless: &Path, game: &Path) -> Result<(), String> {
         command.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let status = command
-        .status()
+    let mut child = command
+        .spawn()
         .map_err(|err| format!("The game did not start: {err}"))?;
+    let status = wait_for_game(&mut child)
+        .map_err(|err| format!("The launcher lost contact with the game: {err}"))?;
     if status.success() {
         return Ok(());
     }
@@ -99,6 +101,48 @@ fn run_game(systemless: &Path, game: &Path) -> Result<(), String> {
         message.push_str(&format!("\n\nThe log is in:\n{}", path.display()));
     }
     Err(message)
+}
+
+/// The dialogs make the launcher an AppKit application. If it then blocks,
+/// macOS marks it as not responding and shows the beachball over the game.
+/// Remove the launcher from the Dock and keep it answering events until the
+/// game stops.
+#[cfg(target_os = "macos")]
+fn wait_for_game(child: &mut Child) -> std::io::Result<ExitStatus> {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSEventMask};
+    use objc2_foundation::{NSDate, NSDefaultRunLoopMode};
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return child.wait();
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        let until = NSDate::dateWithTimeIntervalSinceNow(0.1);
+        let event = unsafe {
+            app.nextEventMatchingMask_untilDate_inMode_dequeue(
+                NSEventMask::Any,
+                Some(&until),
+                NSDefaultRunLoopMode,
+                true,
+            )
+        };
+        if let Some(event) = event {
+            app.sendEvent(&event);
+        }
+    };
+    // An error dialog can follow, so put the launcher back in the Dock.
+    app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+    Ok(status)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn wait_for_game(child: &mut Child) -> std::io::Result<ExitStatus> {
+    child.wait()
 }
 
 fn choose_game_file() -> Option<PathBuf> {
