@@ -1,0 +1,193 @@
+diff --git a/src/systems/macintosh/trap/dispatch.rs b/src/systems/macintosh/trap/dispatch.rs
+index f25f964f..b1c0245f 100644
+--- a/src/systems/macintosh/trap/dispatch.rs
++++ b/src/systems/macintosh/trap/dispatch.rs
+@@ -1848,6 +1848,12 @@ pub struct TrapDispatcher {
+     /// returned. Limit redelivery to once per tick so an animation loop that
+     /// ignores mouseDown events can still make forward progress.
+     pub(crate) pending_native_menu_event_tick: Option<u32>,
++    /// Guest tick on which the latched native event was first returned. A
++    /// guest that ignores the click for `NATIVE_MENU_CLICK_LIFETIME_TICKS`
++    /// does not track menus now (for example, a flight simulator in flight),
++    /// so the click and its selection expire. Without a limit, the click is
++    /// returned on every tick and the key events behind it wait.
++    pub(crate) pending_native_menu_event_first_tick: Option<u32>,
+     /// Active control tracking state (currently popup-menu TrackControl).
+     pub(crate) control_tracking: Option<ControlTrackingState>,
+     pub(crate) custom_control_tracking: Option<CustomControlTrackingState>,
+@@ -3936,6 +3942,7 @@ impl TrapDispatcher {
+             pending_native_menu_selection: SharedNativeMenuSelection::default(),
+             pending_native_menu_event: None,
+             pending_native_menu_event_tick: None,
++            pending_native_menu_event_first_tick: None,
+             control_tracking: None,
+             custom_control_tracking: None,
+             scrollbar_thumb_tracking: None,
+diff --git a/src/systems/macintosh/trap/event.rs b/src/systems/macintosh/trap/event.rs
+index 73cbedd3..616702c0 100644
+--- a/src/systems/macintosh/trap/event.rs
++++ b/src/systems/macintosh/trap/event.rs
+@@ -457,11 +457,37 @@ impl super::TrapDispatcher {
+         }
+     }
+ 
++    /// Ticks that a latched native menu click stays after the guest first
++    /// receives it. Two seconds is enough for an event loop that is busy
++    /// for a moment before it calls MenuSelect.
++    pub(crate) const NATIVE_MENU_CLICK_LIFETIME_TICKS: u32 = 120;
++
++    fn native_menu_click_expired(&self) -> bool {
++        self.pending_native_menu_event_first_tick.is_some_and(|first| {
++            self.current_tick().wrapping_sub(first) >= Self::NATIVE_MENU_CLICK_LIFETIME_TICKS
++        })
++    }
++
++    /// Drop a latched native menu click, and its staged selection, that the
++    /// guest ignored for its whole lifetime. A later real menu-bar click then
++    /// does not receive the old command from MenuSelect.
++    pub(crate) fn expire_stale_native_menu_click(&mut self) {
++        if !self.native_menu_click_expired() {
++            return;
++        }
++        let _ = self.pending_native_menu_selection.take();
++        self.pending_native_menu_event = None;
++        self.pending_native_menu_event_tick = None;
++        self.pending_native_menu_event_first_tick = None;
++    }
++
+     fn peek_pending_native_menu_event(
+         &self,
+         event_mask: u16,
+     ) -> Option<super::dispatch::QueuedEvent> {
+-        if self.pending_native_menu_event_tick == Some(self.current_tick()) {
++        if self.pending_native_menu_event_tick == Some(self.current_tick())
++            || self.native_menu_click_expired()
++        {
+             return None;
+         }
+         self.pending_native_menu_event
+@@ -484,6 +510,8 @@ impl super::TrapDispatcher {
+     ) -> Option<super::dispatch::QueuedEvent> {
+         let event = self.peek_pending_native_menu_event(event_mask)?;
+         self.pending_native_menu_event_tick = Some(self.current_tick());
++        self.pending_native_menu_event_first_tick
++            .get_or_insert(self.current_tick());
+         if trace_input_enabled() || super::dispatch::trace_delivered_events_enabled() {
+             eprintln!(
+                 "[INPUT] present latched native-menu mouseDown where=({}, {}) mask=${:04X} tick={}",
+@@ -497,7 +525,7 @@ impl super::TrapDispatcher {
+     }
+ 
+     pub(crate) fn has_pending_native_menu_event(&self) -> bool {
+-        self.pending_native_menu_event.is_some()
++        self.pending_native_menu_event.is_some() && !self.native_menu_click_expired()
+     }
+ 
+     pub(crate) fn peek_toolbox_event(
+@@ -506,6 +534,7 @@ impl super::TrapDispatcher {
+         event_mask: u16,
+     ) -> Option<super::dispatch::QueuedEvent> {
+         self.enqueue_open_application_event_if_needed(event_mask);
++        self.expire_stale_native_menu_click();
+         self.enqueue_auto_key_if_due(
+             bus.read_word(crate::memory::globals::addr::SYS_EVT_MASK),
+             event_mask,
+@@ -552,6 +581,7 @@ impl super::TrapDispatcher {
+         bus: &MacMemoryBus,
+         event_mask: u16,
+     ) -> Option<super::dispatch::QueuedEvent> {
++        self.expire_stale_native_menu_click();
+         self.enqueue_auto_key_if_due(
+             bus.read_word(crate::memory::globals::addr::SYS_EVT_MASK),
+             event_mask,
+@@ -575,6 +605,7 @@ impl super::TrapDispatcher {
+         event_mask: u16,
+     ) -> (u16, u32, u32, i16, i16, u16, bool) {
+         self.enqueue_open_application_event_if_needed(event_mask);
++        self.expire_stale_native_menu_click();
+         self.enqueue_auto_key_if_due(
+             bus.read_word(crate::memory::globals::addr::SYS_EVT_MASK),
+             event_mask,
+@@ -825,6 +856,7 @@ impl super::TrapDispatcher {
+         bus: &MacMemoryBus,
+         event_mask: u16,
+     ) -> (u16, u32, u32, i16, i16, u16, bool) {
++        self.expire_stale_native_menu_click();
+         self.enqueue_auto_key_if_due(
+             bus.read_word(crate::memory::globals::addr::SYS_EVT_MASK),
+             event_mask,
+diff --git a/src/systems/macintosh/trap/event/tests.rs b/src/systems/macintosh/trap/event/tests.rs
+index fe542485..0716218a 100644
+--- a/src/systems/macintosh/trap/event/tests.rs
++++ b/src/systems/macintosh/trap/event/tests.rs
+@@ -34,6 +34,46 @@ fn native_menu_mouse_down_is_latched_and_rate_limited_until_menuselect() {
+     assert!(disp.pending_native_menu_event.is_some());
+ }
+ 
++#[test]
++fn ignored_native_menu_mouse_down_expires_and_releases_key_events() {
++    // A flight simulator in flight reads one event per frame and never
++    // calls MenuSelect. The latched click must not hold back its keys for
++    // longer than the click lifetime, and the stale command must go away.
++    let (mut disp, _cpu, mut bus) = setup();
++    disp.set_tick_count_for_test(&mut bus, 100);
++    assert!(disp.pending_native_menu_selection.stage((4, 8)));
++    disp.pending_native_menu_event = Some(QueuedEvent {
++        what: 1,
++        message: 0,
++        when: 0,
++        where_v: 10,
++        where_h: 42,
++        modifiers: 0,
++    });
++    assert_eq!(disp.dequeue_event(&bus, u16::MAX).0, 1);
++    disp.event_queue.push_back(QueuedEvent {
++        what: 3,
++        message: 0x0161,
++        when: 0,
++        where_v: 0,
++        where_h: 0,
++        modifiers: 0,
++    });
++
++    let lifetime = TrapDispatcher::NATIVE_MENU_CLICK_LIFETIME_TICKS;
++    for tick in 101..100 + lifetime {
++        disp.set_tick_count_for_test(&mut bus, tick);
++        assert_eq!(disp.dequeue_event(&bus, u16::MAX).0, 1, "tick {tick}");
++    }
++
++    disp.set_tick_count_for_test(&mut bus, 100 + lifetime);
++    let event = disp.dequeue_event(&bus, u16::MAX);
++    assert_eq!((event.0, event.1), (3, 0x0161));
++    assert!(disp.pending_native_menu_event.is_none());
++    assert!(!disp.has_pending_native_menu_event());
++    assert!(disp.pending_native_menu_selection.take().is_none());
++}
++
+ #[test]
+ fn native_menu_mouse_down_follows_older_low_level_events() {
+     let (mut disp, mut cpu, mut bus) = setup();
+diff --git a/src/systems/macintosh/trap/menu.rs b/src/systems/macintosh/trap/menu.rs
+index 5459304b..e819f807 100644
+--- a/src/systems/macintosh/trap/menu.rs
++++ b/src/systems/macintosh/trap/menu.rs
+@@ -760,6 +760,7 @@ impl super::TrapDispatcher {
+                 modifiers: self.current_event_modifiers(),
+             });
+             self.pending_native_menu_event_tick = None;
++            self.pending_native_menu_event_first_tick = None;
+         }
+         Some((10, region.left + (region.right - region.left) / 2))
+     }
+@@ -768,9 +769,11 @@ impl super::TrapDispatcher {
+     /// guest menu list.  Menu contents can change while AppKit is tracking a
+     /// native menu, so validation at enqueue time alone is insufficient.
+     fn take_native_menu_selection(&mut self, bus: &MacMemoryBus) -> Option<u32> {
++        self.expire_stale_native_menu_click();
+         let (menu_id, item_number) = self.pending_native_menu_selection.take()?;
+         self.pending_native_menu_event = None;
+         self.pending_native_menu_event_tick = None;
++        self.pending_native_menu_event_first_tick = None;
+         self.guest_menu_snapshot(bus)
+             .selectable_result(menu_id, item_number)
+     }

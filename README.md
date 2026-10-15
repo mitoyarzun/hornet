@@ -18,7 +18,7 @@ Mac ROM, no System software and no machine emulator.
 An AI agent did most of the work in this project. Claude Code, from Anthropic,
 did these tasks:
 
-- It found the causes of the failures and wrote the seven Systemless patches.
+- It found the causes of the failures and wrote the eight Systemless patches.
 - It wrote the launcher, the scripts, the release workflow and this README.
 - It made the screenshots and the video with automated, headless runs.
 
@@ -44,7 +44,7 @@ full flight.
 
 ## Status
 
-The 68K version of the game runs, with seven small patches to Systemless.
+The 68K version of the game runs, with eight small patches to Systemless.
 
 - **Retail 2.0.1:** the game starts directly from the installer disc. These
   parts work: registration, the pilot dossier, the briefing, the menus, the
@@ -260,6 +260,15 @@ contains only the earned ribbons. `NewRgn` must return an empty region, but
 Systemless did not clear the bounding box. A reused memory block kept the box
 of an old region, so the game drew all 35 ribbons as black bars. The patch
 clears the box.
+
+**`0008-expire-ignored-native-menu-clicks.patch`** stops a keyboard freeze.
+On macOS, Systemless shows the game menus in the menu bar. A menu command,
+for example ⌘F for *Fly Mission…*, becomes a click on the game's menu bar.
+Systemless keeps this click until the game calls `MenuSelect`. During a
+flight, the game does not call `MenuSelect`, so it received the click on each
+tick, and the keys behind it waited. The keyboard stopped for about 30
+seconds. With the patch, the click and its command expire 2 seconds after
+the game first receives it.
 
 ## Things to know
 
