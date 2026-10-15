@@ -71,12 +71,19 @@ You do not need a terminal.
 1. Extract the zip file.
 2. Double-click **F-A-18 Hornet** (macOS) or **F-A-18 Hornet.exe** (Windows).
 3. At the first start, select your game file in the file dialog.
+4. Select the size of the game screen and the display mode: a window or
+   full screen.
 
 The launcher remembers the game file, so the next starts go directly to the
 game. If the game file moves, the launcher asks for it again. If the game
 stops with an error, the launcher shows the error and lets you select a
 different file. On Windows, you can also drag a game file onto
 **F-A-18 Hornet.exe**.
+
+To change the screen size or the display mode later, hold down Shift when
+you start the game. The game screen can be 800 × 600, 1024 × 768 or
+1152 × 870 pixels. A larger screen gives the game room for its larger flight
+views. You can also resize the game window at any time.
 
 The builds are not signed by a registered developer, so the first start
 needs one extra step:
@@ -87,7 +94,8 @@ needs one extra step:
 - **Windows:** if SmartScreen stops the program, click **More info**, then
   **Run anyway**.
 
-The launcher keeps the path of the game file and the log of the last game in
+The launcher keeps the path of the game file, the settings and the log of the
+last game in
 `~/Library/Application Support/hornet` (macOS) or
 `%APPDATA%\hornet` (Windows).
 
@@ -292,6 +300,10 @@ the game first receives it.
   beside your game archive. This folder contains the preferences and a copy
   of the registered application. If you delete it, the game asks for the
   serial number again.
+- **Icon.** The launcher icon comes from the free 2.0 demo, which shows the
+  same icon as the retail game. `tools/make-icons.sh` makes
+  `packaging/macos/AppIcon.icns` and `packaging/windows/hornet.ico` from the
+  demo icons in `packaging/icon/`.
 - **Automatic test.** `play/fly-demo.json` flies the demo without a window. It
   waits for the sky color in the cockpit and checks the instrument panel. It
   fails if the data-file bug comes back.

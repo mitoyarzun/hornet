@@ -48,6 +48,8 @@ case "$target" in
             > "$app/Contents/Info.plist"
         cp "$launcher/hornet-launcher" "$src/target/$target/release/systemless" \
             "$app/Contents/MacOS/"
+        mkdir -p "$app/Contents/Resources"
+        cp "$here/packaging/macos/AppIcon.icns" "$app/Contents/Resources/"
         # An ad-hoc signature lets macOS offer "Open Anyway" for the bundle.
         codesign --force --deep --sign - "$app"
         ditto -c -k --norsrc --noextattr --keepParent "$stage" "$dist/$name.zip"

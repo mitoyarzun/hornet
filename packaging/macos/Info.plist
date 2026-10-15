@@ -8,6 +8,8 @@
     <string>F/A-18 Hornet</string>
     <key>CFBundleExecutable</key>
     <string>hornet-launcher</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>io.github.mitoyarzun.hornet</string>
     <key>CFBundleInfoDictionaryVersion</key>

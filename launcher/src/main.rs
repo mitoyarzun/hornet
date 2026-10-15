@@ -29,6 +29,11 @@ fn main() {
         save_game_path(dropped);
     }
 
+    // Ask for the display settings at the first start, or when Shift is held
+    // down while the launcher starts.
+    let mut settings = load_settings();
+    let mut ask_settings = settings.is_none() || shift_key_down();
+
     loop {
         let path = match game.take().or_else(saved_game_path) {
             Some(path) => path,
@@ -41,7 +46,14 @@ fn main() {
             },
         };
 
-        match run_game(&systemless, &path) {
+        if ask_settings {
+            let chosen = choose_settings(settings.unwrap_or_default());
+            save_settings(&chosen);
+            settings = Some(chosen);
+            ask_settings = false;
+        }
+
+        match run_game(&systemless, &path, settings.unwrap_or_default()) {
             Ok(()) => return,
             Err(message) => {
                 let answer = MessageDialog::new()
@@ -62,7 +74,7 @@ fn main() {
 }
 
 /// Start the game and wait for it. Return an error message if it fails.
-fn run_game(systemless: &Path, game: &Path) -> Result<(), String> {
+fn run_game(systemless: &Path, game: &Path, settings: Settings) -> Result<(), String> {
     if !game.is_file() {
         return Err(format!("The game file is missing:\n{}", game.display()));
     }
@@ -78,9 +90,14 @@ fn run_game(systemless: &Path, game: &Path) -> Result<(), String> {
         .arg("--prefer-68k")
         .arg(game)
         .env("SYSTEMLESS_LOAD_EXECUTABLE", "Hornet")
+        .env("SYSTEMLESS_SCREEN_WIDTH", settings.width.to_string())
+        .env("SYSTEMLESS_SCREEN_HEIGHT", settings.height.to_string())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(stderr);
+    if settings.fullscreen {
+        command.arg("--fullscreen");
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -143,6 +160,139 @@ fn wait_for_game(child: &mut Child) -> std::io::Result<ExitStatus> {
 #[cfg(not(target_os = "macos"))]
 fn wait_for_game(child: &mut Child) -> std::io::Result<ExitStatus> {
     child.wait()
+}
+
+/// The size of the emulated Mac screen, and the window mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Settings {
+    width: u16,
+    height: u16,
+    fullscreen: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            width: 800,
+            height: 600,
+            fullscreen: false,
+        }
+    }
+}
+
+/// Mac screen sizes that the game supports. Its largest view is 1152 pixels
+/// wide.
+const SCREEN_SIZES: [(u16, u16); 3] = [(800, 600), (1024, 768), (1152, 870)];
+
+fn size_label((width, height): (u16, u16)) -> String {
+    format!("{width} × {height}")
+}
+
+fn choose_settings(current: Settings) -> Settings {
+    let labels = SCREEN_SIZES.map(size_label);
+    let answer = MessageDialog::new()
+        .set_level(MessageLevel::Info)
+        .set_title(TITLE)
+        .set_description(format!(
+            "Choose the size of the game screen. A larger screen shows more of the game.\n\n\
+             Now: {}. To change this later, hold down Shift when you start the game.",
+            size_label((current.width, current.height))
+        ))
+        .set_buttons(MessageButtons::YesNoCancelCustom(
+            labels[0].clone(),
+            labels[1].clone(),
+            labels[2].clone(),
+        ))
+        .show();
+    let (width, height) = match answer {
+        MessageDialogResult::Custom(label) => labels
+            .iter()
+            .position(|candidate| *candidate == label)
+            .map_or((current.width, current.height), |index| SCREEN_SIZES[index]),
+        _ => (current.width, current.height),
+    };
+
+    let answer = MessageDialog::new()
+        .set_level(MessageLevel::Info)
+        .set_title(TITLE)
+        .set_description("Play in a window or in full screen?")
+        .set_buttons(MessageButtons::OkCancelCustom(
+            "Full screen".to_string(),
+            "Window".to_string(),
+        ))
+        .show();
+    let fullscreen = match answer {
+        MessageDialogResult::Custom(label) => label == "Full screen",
+        _ => current.fullscreen,
+    };
+
+    Settings {
+        width,
+        height,
+        fullscreen,
+    }
+}
+
+fn parse_settings(text: &str) -> Settings {
+    let mut settings = Settings::default();
+    for line in text.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        match key.trim() {
+            "screen" => {
+                if let Some(size) = value.trim().split_once('x').and_then(|(w, h)| {
+                    Some((w.parse().ok()?, h.parse().ok()?))
+                }) {
+                    if SCREEN_SIZES.contains(&size) {
+                        (settings.width, settings.height) = size;
+                    }
+                }
+            }
+            "fullscreen" => settings.fullscreen = value.trim() == "yes",
+            _ => {}
+        }
+    }
+    settings
+}
+
+fn load_settings() -> Option<Settings> {
+    let text = fs::read_to_string(state_dir()?.join("settings.txt")).ok()?;
+    Some(parse_settings(&text))
+}
+
+fn save_settings(settings: &Settings) {
+    if let Some(dir) = state_dir() {
+        let text = format!(
+            "screen={}x{}\nfullscreen={}\n",
+            settings.width,
+            settings.height,
+            if settings.fullscreen { "yes" } else { "no" }
+        );
+        let _ = fs::write(dir.join("settings.txt"), text);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn shift_key_down() -> bool {
+    use objc2_app_kit::{NSEvent, NSEventModifierFlags};
+    NSEvent::modifierFlags_class().contains(NSEventModifierFlags::Shift)
+}
+
+#[cfg(windows)]
+fn shift_key_down() -> bool {
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetAsyncKeyState(key: i32) -> i16;
+    }
+    const VK_SHIFT: i32 = 0x10;
+    // The high bit is set while the key is down.
+    unsafe { GetAsyncKeyState(VK_SHIFT) < 0 }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn shift_key_down() -> bool {
+    false
 }
 
 fn choose_game_file() -> Option<PathBuf> {
@@ -210,5 +360,29 @@ fn save_game_path(path: &Path) {
 fn forget_game_path() {
     if let Some(dir) = state_dir() {
         let _ = fs::remove_file(dir.join("game-path.txt"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settings_round_trip_through_the_file_format() {
+        let settings = parse_settings("screen=1024x768\nfullscreen=yes\n");
+        assert_eq!(
+            settings,
+            Settings {
+                width: 1024,
+                height: 768,
+                fullscreen: true
+            }
+        );
+    }
+
+    #[test]
+    fn unknown_screen_sizes_keep_the_default() {
+        assert_eq!(parse_settings("screen=4000x3000\n"), Settings::default());
+        assert_eq!(parse_settings("garbage"), Settings::default());
     }
 }

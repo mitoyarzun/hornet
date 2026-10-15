@@ -22,6 +22,10 @@ from your Pilot Flight Manual one time.
 If the game file moves, the launcher asks for it again. To use a different
 file on Windows, drag it onto "F-A-18 Hornet.exe".
 
+At the first start, the launcher also asks for the size of the game screen
+and for a window or full screen. To change these settings later, hold down
+Shift when you start the game.
+
 First start on macOS
 --------------------
 The app is not signed by a registered Apple developer, so macOS blocks the
