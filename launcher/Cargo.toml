@@ -1,0 +1,14 @@
+[package]
+name = "hornet-launcher"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+description = "Double-click launcher for F/A-18 Hornet 2.0 on Systemless"
+publish = false
+
+[dependencies]
+rfd = "0.17"
+dirs = "7"
+
+[profile.release]
+strip = true

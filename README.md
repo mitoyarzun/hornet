@@ -19,7 +19,7 @@ An AI agent did most of the work in this project. Claude Code, from Anthropic,
 did these tasks:
 
 - It found the cause of the failures and wrote the two Systemless patches.
-- It wrote the scripts, the release workflow and this README.
+- It wrote the launcher, the scripts, the release workflow and this README.
 - It made the screenshots and the video with automated, headless runs.
 
 I (Jaime Oyarzun) directed the work, supplied my copy of the game, and
@@ -60,28 +60,36 @@ The 68K version of the game runs, with two small patches to Systemless.
 ## Download
 
 Get a build from the [releases page](https://github.com/mitoyarzun/fa18-hornet-mac/releases).
+You do not need a terminal.
 
 | Computer | File |
 | --- | --- |
-| Mac with Apple silicon (M1 or later) | `fa18-hornet-mac-VERSION-aarch64-apple-darwin.tar.gz` |
-| Mac with an Intel processor | `fa18-hornet-mac-VERSION-x86_64-apple-darwin.tar.gz` |
+| Mac with Apple silicon (M1 or later) | `fa18-hornet-mac-VERSION-aarch64-apple-darwin.zip` |
+| Mac with an Intel processor | `fa18-hornet-mac-VERSION-x86_64-apple-darwin.zip` |
 | Windows, 64-bit | `fa18-hornet-mac-VERSION-x86_64-pc-windows-msvc.zip` |
 
-**macOS:**
-
-1. Extract the archive.
-2. Open Terminal in the extracted folder.
-3. Remove the download quarantine: `xattr -dr com.apple.quarantine .`
-4. Start the game: `./run-hornet.sh "/path/to/F-A-18 Hornet 2.0.toast"`
-
-**Windows:**
-
 1. Extract the zip file.
-2. Drag your game archive onto `run-hornet.cmd`.
-3. If SmartScreen stops the program, click **More info**, then **Run anyway**.
+2. Double-click **F-A-18 Hornet** (macOS) or **F-A-18 Hornet.exe** (Windows).
+3. At the first start, select your game file in the file dialog.
 
-The builds are not signed. That is the cause of the quarantine step on macOS
-and the SmartScreen message on Windows.
+The launcher remembers the game file, so the next starts go directly to the
+game. If the game file moves, the launcher asks for it again. If the game
+stops with an error, the launcher shows the error and lets you select a
+different file. On Windows, you can also drag a game file onto
+**F-A-18 Hornet.exe**.
+
+The builds are not signed by a registered developer, so the first start
+needs one extra step:
+
+- **macOS:** double-click the app, and click **Done** in the warning. Open
+  **System Settings > Privacy & Security**, and click **Open Anyway** next to
+  "F-A-18 Hornet".
+- **Windows:** if SmartScreen stops the program, click **More info**, then
+  **Run anyway**.
+
+The launcher keeps the path of the game file and the log of the last game in
+`~/Library/Application Support/fa18-hornet-mac` (macOS) or
+`%APPDATA%\fa18-hornet-mac` (Windows).
 
 ## Your copy of the game
 
@@ -167,6 +175,10 @@ tools/smoke-demo.sh                     # get the free 2.0 demo, fly it without 
 tools/run-hornet.sh path/to/Hornet.sit  # play in a window
 ```
 
+To build the double-click launcher, run
+`cargo build --release --manifest-path launcher/Cargo.toml`. The launcher
+starts the `systemless` binary that is in the same folder.
+
 The release build takes several minutes because it uses full link-time
 optimization. `PROFILE=ci-test` builds faster, and the game runs a little
 slower. Set `TARGET` to build for a different Rust target. All downloads and
@@ -209,8 +221,8 @@ alone does not make the PowerPC version run.
 
 - **Select the game application.** The demo archive also contains a
   PowerPC documentation reader. Systemless prefers PowerPC applications, so
-  `systemless demo.sit` opens the documentation. `run-hornet.sh` and
-  `run-hornet.cmd` set `SYSTEMLESS_LOAD_EXECUTABLE=Hornet` to select the game.
+  `systemless demo.sit` opens the documentation. The launcher and
+  `run-hornet.sh` set `SYSTEMLESS_LOAD_EXECUTABLE=Hornet` to select the game.
 - **Use the 68K version.** Hornet 2.0 contains a 68K version and a PowerPC
   version. The PowerPC version stops at once, because Systemless does not have
   16 of its 343 InterfaceLib imports:
@@ -218,8 +230,8 @@ alone does not make the PowerPC version run.
   `LMSetSEvtEnb`, `LMGetTEScrpHandle`, `LMSetTEScrpHandle`, `BitShift`,
   `DeltaPoint`, `AngleFromSlope`, `SystemEvent`, `RecoverHandleSys`,
   `DrvrInstall`, `PConfirmName`, `PrJobMerge` and `LNextCell`.
-  `tools/pef_imports.py` lists the imports of a PEF file. The launch scripts
-  pass `--prefer-68k`.
+  `tools/pef_imports.py` lists the imports of a PEF file. The launcher and
+  `run-hornet.sh` pass `--prefer-68k`.
 - **No network play.** The game looks for the AppleTalk driver (`.MPP`).
   Systemless does not have this driver, so *Network Host* and
   *Network Join* stay disabled.

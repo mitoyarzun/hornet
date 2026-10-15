@@ -38,6 +38,8 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: tools/setup-systemless.sh
+      - name: Build the launcher
+        run: cargo build --locked --release --target '${{ matrix.target }}' --manifest-path launcher/Cargo.toml
       - name: Run the Systemless library tests
         run: cd out/systemless && cargo test --locked --profile ci-test --lib --target '${{ matrix.target }}'
       - name: Package
