@@ -52,9 +52,10 @@ The 68K version of the game runs, with two small patches to Systemless.
   roll.
 - **Free 2.0 demo:** the title screen, the briefing, the cockpit, takeoff,
   climb and the external view work.
-- **Platforms:** the windowed game starts on macOS (Apple silicon). The
-  Intel macOS and Windows builds compile in CI, but nobody has played them
-  yet.
+- **Platforms:** the windowed game starts on macOS with Apple silicon. The
+  Intel macOS build passes the automatic demo test under Rosetta. The Windows
+  build compiles and passes the Systemless tests in CI, but nobody has run
+  the game on Windows yet.
 
 ## Download
 
@@ -239,7 +240,7 @@ alone does not make the PowerPC version run.
 
 ## Not done yet
 
-- Play tests of the Intel macOS and Windows builds.
+- Play tests on Windows and on an Intel Mac.
 - The PowerPC version, which needs the 16 imports above.
 - A request to include the patches in Systemless.
 
