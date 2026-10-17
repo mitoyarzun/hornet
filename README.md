@@ -18,7 +18,7 @@ Mac ROM, no System software and no machine emulator.
 An AI agent did most of the work in this project. Claude Code, from Anthropic,
 did these tasks:
 
-- It found the causes of the failures and wrote the nine Systemless patches.
+- It found the causes of the failures and wrote the Systemless patches.
 - It wrote the launcher, the scripts, the release workflow and this README.
 - It made the screenshots and the video with automated, headless runs.
 
@@ -105,6 +105,34 @@ The launcher keeps the path of the game file, the settings and the log of the
 last game in
 `~/Library/Application Support/hornet` (macOS) or
 `%APPDATA%\hornet` (Windows).
+
+## Play in the browser
+
+Open [mitoyarzun.github.io/hornet](https://mitoyarzun.github.io/hornet/) in
+a desktop browser. Click **Choose game file…** and select your game file. The
+page then starts the game.
+
+The file stays in your browser. The page does not send it to a server. The
+browser keeps the file in IndexedDB, and a service worker keeps the page. The
+next visits start the game directly, without a download, and also work
+offline. The browser also keeps the saved files, such as the registration
+and the pilot dossier. To remove the game file, click
+**Use a different game file** below the game.
+
+Click **Full screen** below the game to fill the display. In Chrome and Edge,
+full screen also locks the keyboard, so the ⌘ key and the browser's own
+shortcuts, such as ⌘W and ⌘N, go to the game. To leave full screen, hold
+down Esc. A short press of Esc goes to the game. Safari and Firefox do not
+have the Keyboard Lock API, so they keep their own ⌘ shortcuts. No browser
+gets the macOS shortcuts, such as ⌘Tab and ⌘Space.
+
+Select the **Screen size** below the game: 800 × 600, 1024 × 768 or
+1152 × 870 pixels, as in the launcher. The browser remembers the size. A new
+size restarts the game.
+
+The browser version uses the Systemless web frontend. The game's menu bar is
+always in the game screen. The test used Chrome, the free 2.0 demo and
+the retail disc in a StuffIt archive.
 
 ## Your copy of the game
 
@@ -200,6 +228,21 @@ optimization. `PROFILE=ci-test` builds faster, and the game runs a little
 slower. Set `TARGET` to build for a different Rust target. All downloads and
 build output go into `out/`, and git ignores that directory.
 
+To build the browser version into `dist/web`, run `tools/build-web.sh`. It
+needs [Trunk](https://trunkrs.dev) 0.21.14, and installs it with Cargo if it
+is not there. The page expects the address `/hornet/`. Set `PUBLIC_URL` for a
+different address, for example `PUBLIC_URL=/ tools/build-web.sh`. To try the
+page, serve `dist/web` at that address, for example:
+
+```sh
+mkdir -p out/serve && ln -sfn ../../dist/web out/serve/hornet
+python3 -m http.server 8000 --directory out/serve   # open http://localhost:8000/hornet/
+```
+
+The workflow `.github/workflows/pages.yml` builds the page and publishes it
+on GitHub Pages on each push to `main`. Before the first run, set
+**Settings > Pages > Source** to **GitHub Actions**.
+
 To make a new demo video, generate the play script with
 `python3 -I tools/make-demo-video.py > out/video.json`. Then run Systemless
 with `--headless --play-script out/video.json`, and join the frames with
@@ -209,7 +252,7 @@ ffmpeg at 30 frames per second.
 
 The patches apply in order to Systemless commit `38666a8` (version 0.96.0).
 The Systemless library tests pass with the patches. Each patch adds unit tests
-for its change.
+for its change, except patch 0010. Patch 0010 adds one test, for the screen size setter.
 
 **`0001-open-hfs-basenames-containing-slash.patch`** is the important patch.
 Without it, the game shows "Sorry, I can't find the file "F/A-18 Data"".
@@ -299,6 +342,25 @@ write the file.
   5 seconds if the game does not answer, for example during a flight.
 - `AEProcessAppleEvent` called the Open Application handler for each Apple
   event. It now calls the handler for the event class and ID.
+
+**`0010-hornet-web-page-with-a-cached-game-file.patch`** changes the web
+frontend in `www/`. The desktop build does not use these changes.
+
+- The page shows Hornet only, instead of the Systemless catalogue. It asks
+  for a game file and keeps the file in IndexedDB. It starts the game with
+  the settings of the catalogue entry for the demo, with the menu bar on.
+- The browser has no environment variables, so `SYSTEMLESS_SCREEN_WIDTH`
+  and `SYSTEMLESS_SCREEN_HEIGHT` do not work there. The patch adds
+  `machine_profile::set_reference_screen_size` to the library. The page
+  calls it before the game starts, and sends the size to the emulator
+  worker, which has its own copy of the runtime.
+- The **Full screen** button puts the game screen in full screen and calls
+  `navigator.keyboard.lock()`.
+- On macOS, the browser sends no key-up event for a key that the player
+  releases while ⌘ is down. The page releases those keys with ⌘.
+- The service worker caches the WebAssembly module and the scripts. It
+  removes the files of earlier deploys.
+- The page uses relative paths, so it works below `/hornet/`.
 
 ## Things to know
 

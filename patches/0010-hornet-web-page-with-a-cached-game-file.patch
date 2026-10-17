@@ -1,0 +1,1057 @@
+diff --git a/src/systems/macintosh/machine_profile.rs b/src/systems/macintosh/machine_profile.rs
+index 4429d2f2..e05b5fe0 100644
+--- a/src/systems/macintosh/machine_profile.rs
++++ b/src/systems/macintosh/machine_profile.rs
+@@ -225,10 +225,29 @@ pub(crate) const REFERENCE_POWERPC_EXECUTION_CAPABILITIES: GuestExecutionCapabil
+ /// `SYSTEMLESS_SCREEN_WIDTH`, `SYSTEMLESS_SCREEN_HEIGHT`, and
+ /// `SYSTEMLESS_RAM_SIZE` environment variables.
+ pub fn reference_machine_profile() -> MachineProfile {
+-    // Resolved once: callers include per-pixel geometry helpers, and parsing
+-    // the environment on every query showed up as a frame-time regression.
+-    static RESOLVED: std::sync::OnceLock<MachineProfile> = std::sync::OnceLock::new();
+-    *RESOLVED.get_or_init(resolve_reference_machine_profile)
++    *RESOLVED_PROFILE.get_or_init(resolve_reference_machine_profile)
++}
++
++// Resolved once: callers include per-pixel geometry helpers, and parsing
++// the environment on every query showed up as a frame-time regression.
++static RESOLVED_PROFILE: std::sync::OnceLock<MachineProfile> = std::sync::OnceLock::new();
++
++/// Sets the screen size of the reference profile, for hosts without
++/// environment variables, such as the browser. Call it before the first call
++/// to `reference_machine_profile`. Returns false if the profile is already
++/// resolved, or if a dimension is zero.
++pub fn set_reference_screen_size(width: u16, height: u16) -> bool {
++    if width == 0 || height == 0 {
++        return false;
++    }
++    let profile = MachineProfile {
++        screen_width: width,
++        screen_height: height,
++        ..resolve_reference_machine_profile()
++    };
++    RESOLVED_PROFILE.set(profile).is_ok()
++        || reference_machine_profile().screen_width == width
++            && reference_machine_profile().screen_height == height
+ }
+ 
+ fn resolve_reference_machine_profile() -> MachineProfile {
+@@ -261,6 +280,12 @@ fn resolve_reference_machine_profile() -> MachineProfile {
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    fn reference_screen_size_rejects_a_zero_dimension() {
++        assert!(!set_reference_screen_size(0, 600));
++        assert!(!set_reference_screen_size(800, 0));
++    }
++
+     #[test]
+     fn m68k_capabilities_derive_from_machine_profile_fields() {
+         let profile = MachineProfile {
+diff --git a/www/index.html b/www/index.html
+index ba73de1e..83f875d2 100644
+--- a/www/index.html
++++ b/www/index.html
+@@ -5,64 +5,30 @@
+   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+   <script>
+     (() => {
+-      let savedTheme = null;
+-      try {
+-        savedTheme = localStorage.getItem("systemless.theme");
+-      } catch (_) {}
+-      const dark = savedTheme
+-        ? savedTheme === "dark"
+-        : window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
++      const dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+       document.documentElement.dataset.theme = dark ? "dark" : "light";
+     })();
+   </script>
+-  <!-- systemless-seo -->
+-  <title>Systemless | Play classic 68K and PowerPC Mac games in your browser</title>
+-  <meta name="description" content="Play classic 68K and PowerPC Macintosh games in the browser with Systemless, a ROM-free classic Mac runtime for playable preservation." />
+-  <meta name="robots" content="index,follow" />
+-  <link rel="canonical" href="https://systemless.org/" />
+-  <meta property="og:type" content="website" />
+-  <meta property="og:site_name" content="Systemless" />
+-  <meta property="og:title" content="Systemless | Play classic 68K and PowerPC Mac games in your browser" />
+-  <meta property="og:description" content="Play classic 68K and PowerPC Macintosh games in the browser with Systemless, a ROM-free classic Mac runtime for playable preservation." />
+-  <meta property="og:url" content="https://systemless.org/" />
+-  <meta property="og:image" content="https://systemless.org/assets/icons/favicon.svg" />
+-  <meta name="twitter:card" content="summary_large_image" />
+-  <meta name="twitter:title" content="Systemless | Play classic 68K and PowerPC Mac games in your browser" />
+-  <meta name="twitter:description" content="Play classic 68K and PowerPC Macintosh games in the browser with Systemless, a ROM-free classic Mac runtime for playable preservation." />
+-  <meta name="twitter:image" content="https://systemless.org/assets/icons/favicon.svg" />
+-  <script type="application/ld+json">
+-    {"@context":"https://schema.org","@type":"WebSite","name":"Systemless","alternateName":"systemless.org","url":"https://systemless.org/"}
+-  </script>
+-  <!-- /systemless-seo -->
+-  <meta name="application-name" content="Systemless" />
+-  <meta name="apple-mobile-web-app-title" content="Systemless" />
+-  <meta name="apple-mobile-web-app-capable" content="yes" />
+-  <meta name="mobile-web-app-capable" content="yes" />
+-  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+-  <meta name="theme-color" content="#f2efe9" />
++  <title>F/A-18 Hornet 2.0</title>
++  <meta name="description" content="Play your own copy of Graphsim's F/A-18 Hornet 2.0 in the browser with Systemless." />
++  <meta name="application-name" content="F/A-18 Hornet" />
++  <meta name="apple-mobile-web-app-title" content="F/A-18 Hornet" />
++  <meta name="theme-color" content="#111111" />
+   <meta name="color-scheme" content="light dark" />
+-  <link rel="manifest" href="/manifest.webmanifest" />
+-  <link rel="icon" href="/assets/icons/favicon.svg" type="image/svg+xml" />
+-  <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png" />
+-  <link rel="preconnect" href="https://assets.systemless.org" crossorigin />
++  <link rel="manifest" href="manifest.webmanifest" />
++  <link rel="icon" href="assets/icons/icon-192.png" type="image/png" />
++  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png" />
+   <script>
+-    (() => {
+-      const compactTitleMedia = "(max-width: 760px), (display-mode: standalone), (hover: none) and (pointer: coarse)";
+-      if (window.matchMedia && window.matchMedia(compactTitleMedia).matches) {
+-        document.title = "Systemless";
+-      }
+-
+-      if ("serviceWorker" in navigator) {
+-        window.addEventListener("load", () => {
+-          navigator.serviceWorker.register("/service-worker.js").catch(() => {});
+-        });
+-      }
+-    })();
++    if ("serviceWorker" in navigator) {
++      window.addEventListener("load", () => {
++        navigator.serviceWorker.register("service-worker.js").catch(() => {});
++      });
++    }
+   </script>
+   <link data-trunk rel="rust" data-bin="systemless-org" />
+   <link data-trunk rel="css" href="src/style.css" />
++  <link data-trunk rel="css" href="src/hornet.css" />
+   <link data-trunk rel="copy-dir" href="assets" />
+-  <link data-trunk rel="copy-dir" href="catalogue/incoming" />
+   <link data-trunk rel="copy-file" href="public/manifest.webmanifest" />
+   <link data-trunk rel="copy-file" href="public/service-worker.js" />
+   <link data-trunk rel="copy-file" href="src/emulator-worker.js" />
+@@ -74,19 +40,7 @@
+ </head>
+ <body>
+   <div id="root">
+-    <!-- systemless-fallback -->
+-    <main class="seo-fallback">
+-      <h1>Classic 68K and PowerPC Macintosh games in your browser</h1>
+-      <p>Systemless is a ROM-free classic Mac runtime for playable preservation, serving original 68K and PowerPC Macintosh game archives directly on the web.</p>
+-      <section class="seo-cli-hint">
+-        <h2>Run your own application</h2>
+-        <p>On macOS, install with Homebrew: <code>brew install benletchford/tap/systemless</code></p>
+-        <p>On other platforms, install with Cargo: <code>cargo install systemless</code></p>
+-        <p>Then launch an application: <code>systemless path/to/application.sit</code></p>
+-      </section>
+-      <p>The game library is loaded from the community catalogue.</p>
+-    </main>
+-    <!-- /systemless-fallback -->
++    <noscript>This page needs JavaScript and WebAssembly to run the game.</noscript>
+   </div>
+ </body>
+ </html>
+diff --git a/www/public/manifest.webmanifest b/www/public/manifest.webmanifest
+index 7077cd3e..a76801ad 100644
+--- a/www/public/manifest.webmanifest
++++ b/www/public/manifest.webmanifest
+@@ -1,29 +1,16 @@
+ {
+-  "id": "/",
+-  "name": "Systemless",
+-  "short_name": "Systemless",
+-  "description": "Play classic 68K and PowerPC Macintosh games in the browser with Systemless.",
+-  "start_url": "/",
+-  "scope": "/",
++  "id": "./",
++  "name": "F/A-18 Hornet 2.0",
++  "short_name": "Hornet",
++  "description": "Play your own copy of F/A-18 Hornet 2.0 in the browser with Systemless.",
++  "start_url": "./",
++  "scope": "./",
+   "display": "standalone",
+   "background_color": "#111111",
+   "theme_color": "#111111",
+-  "categories": [
+-    "games",
+-    "entertainment"
+-  ],
++  "categories": ["games"],
+   "icons": [
+-    {
+-      "src": "/assets/icons/icon-192.png",
+-      "sizes": "192x192",
+-      "type": "image/png",
+-      "purpose": "any"
+-    },
+-    {
+-      "src": "/assets/icons/icon-512.png",
+-      "sizes": "512x512",
+-      "type": "image/png",
+-      "purpose": "any maskable"
+-    }
++    { "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
++    { "src": "assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+   ]
+ }
+diff --git a/www/public/service-worker.js b/www/public/service-worker.js
+index b9202cab..a835f309 100644
+--- a/www/public/service-worker.js
++++ b/www/public/service-worker.js
+@@ -1,19 +1,24 @@
+-const CACHE_PREFIX = "systemless";
+-const STATIC_CACHE = `${CACHE_PREFIX}-static-v6`;
+-const APP_SHELL = [
+-  "/",
+-  "/manifest.webmanifest",
+-  "/assets/icons/favicon.svg",
+-  "/assets/icons/icon-192.png",
+-  "/assets/icons/icon-512.png",
+-  "/assets/icons/apple-touch-icon.png",
+-];
++// Cache the app so that later visits start without a download. The game file
++// is not here: the page keeps it in IndexedDB.
++//
++// Trunk puts a content hash in the names of the WebAssembly module, its
++// JavaScript and the stylesheets, so the worker serves those from the cache.
++// The fonts and icons do not change. The worker fetches the other files from
++// the network first, and uses the cache when the network is not available.
++// The snippets/ folder name does not change for each change of a snippet, and
++// the page checks the integrity of the snippets, so a stale snippet stops the
++// page.
++const CACHE_PREFIX = "hornet";
++const STATIC_CACHE = `${CACHE_PREFIX}-static-v2`;
++const SCOPE = new URL(self.registration.scope);
++const APP_SHELL = ["./", "manifest.webmanifest"];
++const HASHED = /-[0-9a-f]{16}(_bg)?\.(wasm|js|css)$/;
+ 
+ self.addEventListener("install", (event) => {
+   event.waitUntil(
+     caches
+       .open(STATIC_CACHE)
+-      .then((cache) => cache.addAll(APP_SHELL))
++      .then((cache) => cache.addAll(APP_SHELL.map((path) => new URL(path, SCOPE))))
+       .then(() => self.skipWaiting()),
+   );
+ });
+@@ -35,54 +40,34 @@ self.addEventListener("activate", (event) => {
+ 
+ self.addEventListener("fetch", (event) => {
+   const { request } = event;
+-  if (request.method !== "GET") {
+-    return;
+-  }
+-
++  if (request.method !== "GET") return;
+   const url = new URL(request.url);
+-  if (url.origin !== self.location.origin) {
+-    return;
+-  }
+-
+-  if (request.mode === "navigate") {
+-    event.respondWith(networkFirst(request));
+-    return;
+-  }
+-
+-  if (["/emulator-worker.js", "/renderer-worker.js", "/renderer-transport.js", "/renderer-client.js", "/renderer-gpu.js", "/renderer-owner.js"].includes(url.pathname)
+-      || url.pathname.startsWith("/snippets/")) {
+-    event.respondWith(networkFirst(request));
+-    return;
+-  }
++  if (url.origin !== SCOPE.origin || !url.pathname.startsWith(SCOPE.pathname)) return;
+ 
+-  if (isStaticAsset(url)) {
++  const path = url.pathname.slice(SCOPE.pathname.length);
++  if (HASHED.test(path) || path.startsWith("assets/fonts/") || path.startsWith("assets/icons/")) {
+     event.respondWith(cacheFirst(request));
++  } else {
++    event.respondWith(networkFirst(request));
+   }
+ });
+ 
+-function isStaticAsset(url) {
+-  return (
+-    url.pathname === "/manifest.webmanifest" ||
+-    url.pathname.startsWith("/assets/") ||
+-    url.pathname.endsWith(".css") ||
+-    url.pathname.endsWith(".js") ||
+-    url.pathname.endsWith(".wasm")
+-  );
+-}
+-
+ async function networkFirst(request) {
+   const cache = await caches.open(STATIC_CACHE);
+   try {
+     const response = await fetch(request);
+     if (response.ok) {
+       cache.put(request, response.clone());
++      if (request.mode === "navigate") {
++        response.clone().text().then((html) => pruneOldBuilds(cache, html)).catch(() => {});
++      }
+     }
+     return response;
+   } catch (_error) {
+     return (
+-      (await cache.match(request)) ||
+-      (await cache.match("/")) ||
+-      new Response("Systemless is offline.", {
++      (await cache.match(request, { ignoreSearch: true })) ||
++      (request.mode === "navigate" && (await cache.match(new URL("./", SCOPE)))) ||
++      new Response("The game page is offline.", {
+         status: 503,
+         headers: { "Content-Type": "text/plain; charset=utf-8" },
+       })
+@@ -90,12 +75,25 @@ async function networkFirst(request) {
+   }
+ }
+ 
+-async function cacheFirst(request) {
+-  const cached = await caches.match(request);
+-  if (cached) {
+-    return cached;
++// A new deploy changes the hashed file names. Remove the files of earlier
++// deploys: the hashed files, and the worker scripts for an earlier module.
++async function pruneOldBuilds(cache, html) {
++  const current = new Set(html.match(/[\w.-]+-[0-9a-f]{16}(_bg)?\.(wasm|js|css)/g) || []);
++  if (![...current].some((name) => name.endsWith("_bg.wasm"))) return;
++  for (const request of await cache.keys()) {
++    const url = new URL(request.url);
++    const name = url.pathname.split("/").pop();
++    const runtime = url.searchParams.get("runtime");
++    const oldHashed = HASHED.test(name) && !current.has(name);
++    const oldSnippet = url.pathname.includes("/snippets/") && !html.includes(url.pathname.split("/snippets/")[1].split("/")[0]);
++    const oldRuntime = runtime && ![...current].some((name) => runtime.endsWith(name));
++    if (oldHashed || oldSnippet || oldRuntime) await cache.delete(request);
+   }
++}
+ 
++async function cacheFirst(request) {
++  const cached = await caches.match(request);
++  if (cached) return cached;
+   const response = await fetch(request);
+   if (response.ok) {
+     const cache = await caches.open(STATIC_CACHE);
+diff --git a/www/src/components/game_info.rs b/www/src/components/game_info.rs
+index 08b6eb62..e098d394 100644
+--- a/www/src/components/game_info.rs
++++ b/www/src/components/game_info.rs
+@@ -7,13 +7,8 @@ pub fn GameInfoContent(game: &'static Game, tab: &'static str) -> impl IntoView
+     match tab {
+         "about" => view! {
+             <article class="game-wiki">
+-                <div class="game-wiki__actions">
+-                    <a href=links.edit target="_blank" rel="noopener noreferrer">"Edit this page / propose a PR"</a>
+-                    <a href=links.source target="_blank" rel="noopener noreferrer">"View Markdown source"</a>
+-                </div>
+                 <p>{game.description}</p>
+                 <div class="catalogue-notes" inner_html=game.content_html></div>
+-                <p class="game-wiki__hint">"This community page comes from the catalogue entry. Propose an edit on GitHub to improve its notes, history, or instructions."</p>
+             </article>
+         }.into_any(),
+         "license" => view! {
+diff --git a/www/src/components/game_screen.rs b/www/src/components/game_screen.rs
+index 34fa4a1a..06b80c9c 100644
+--- a/www/src/components/game_screen.rs
++++ b/www/src/components/game_screen.rs
+@@ -728,11 +728,8 @@ fn mobile_button_grid_view(
+     .into_any()
+ }
+ 
+-const GAME_INFO_TABS: [(&str, &str); 3] = [
+-    ("keys", "Mapped keys"),
+-    ("license", "License"),
+-    ("issues", "Open an issue"),
+-];
++// The Hornet page has no catalogue licence record or catalogue issue forms.
++const GAME_INFO_TABS: [(&str, &str); 1] = [("keys", "Mapped keys")];
+ 
+ #[component]
+ fn GameFilesDialog(
+@@ -2460,7 +2457,7 @@ async fn boot_catalogue_worker(
+         .ok_or("runtime module is missing")?;
+     let wasm_url = assets.get(1).as_string().ok_or("runtime wasm is missing")?;
+     let runtime_id = module_url.rsplit('/').next().unwrap_or("current");
+-    let worker_url = format!("/emulator-worker.js?runtime={runtime_id}");
++    let worker_url = format!("emulator-worker.js?runtime={runtime_id}");
+     let worker = Worker::new(&worker_url).map_err(js_value_string)?;
+     pending_worker.try_with_value(|slot| *slot.borrow_mut() = Some(worker.clone()));
+     let generation = WORKER_GENERATION.with(|counter| {
+@@ -2484,11 +2481,14 @@ async fn boot_catalogue_worker(
+     set_js_property(&message, "moduleUrl", &JsValue::from_str(&module_url));
+     set_js_property(&message, "wasmUrl", &JsValue::from_str(&wasm_url));
+     set_js_property(&message, "gameBytes", bytes.buffer().as_ref());
++    let profile = systemless::systems::macintosh::machine_profile::reference_machine_profile();
++    let screen_size = (profile.screen_width, profile.screen_height);
+     let config = serde_json::json!({
+         "id": game.id, "architecture": architecture.key(),
+         "launch_modifiers": game.settings.launch_modifiers,
+         "show_menu_bar": game.settings.show_menu_bar,
+         "screen_depth": game.settings.screen_depth,
++        "screen_size": screen_size,
+         "application_partition_size": game.settings.application_partition_size,
+         "executable_path": game.settings.executable_path,
+         "remove_paths": game.settings.remove_paths,
+@@ -3256,6 +3256,13 @@ fn attach_input(
+             ev.prevent_default();
+             machine_ku.key_up(mac_key, char_code);
+         }
++        // On macOS, the browser sends no keyup for a key that the player
++        // releases while Command is down. Release those keys with Command.
++        if ev.key() == "Meta" {
++            for (_, (mac_key, char_code)) in std::mem::take(&mut *pressed_ku.borrow_mut()) {
++                machine_ku.key_up(mac_key, char_code);
++            }
++        }
+     }) as Box<dyn FnMut(KeyboardEvent)>);
+     let _ = canvas.add_event_listener_with_callback("keyup", on_key_up.as_ref().unchecked_ref());
+     listeners
+diff --git a/www/src/emulator.rs b/www/src/emulator.rs
+index f0f20610..006c42e4 100644
+--- a/www/src/emulator.rs
++++ b/www/src/emulator.rs
+@@ -2514,7 +2514,7 @@ impl AudioBootstrap {
+         };
+         let worklet_module = ctx.audio_worklet().ok().and_then(|worklet| {
+             worklet
+-                .add_module(&asset_path("/assets/audio-worklet.js"))
++                .add_module(&asset_path("assets/audio-worklet.js"))
+                 .ok()
+         });
+         for promise in [&resume, &worklet_module].into_iter().flatten() {
+@@ -2645,7 +2645,7 @@ impl WorkletAudioBackend {
+             JsFuture::from(module).await.ok()?;
+         } else {
+             let worklet = ctx.audio_worklet().ok()?;
+-            let module_url = asset_path("/assets/audio-worklet.js");
++            let module_url = asset_path("assets/audio-worklet.js");
+             JsFuture::from(worklet.add_module(&module_url).ok()?)
+                 .await
+                 .ok()?;
+diff --git a/www/src/hornet.css b/www/src/hornet.css
+new file mode 100644
+index 00000000..0c8c5298
+--- /dev/null
++++ b/www/src/hornet.css
+@@ -0,0 +1,118 @@
++/* Single-game page for F/A-18 Hornet 2.0. */
++.hornet .app__main {
++  padding-top: calc(var(--safe-area-top) + 24px);
++}
++
++.hornet .game-download {
++  display: none;
++}
++
++.hornet-status,
++.hornet-file {
++  max-width: var(--game-width);
++  margin: 16px auto;
++  color: var(--muted);
++}
++
++.hornet-pick {
++  max-width: var(--content-width);
++  margin: 32px auto;
++  padding: 24px;
++  border: 1px solid var(--rule);
++  background: var(--surface);
++  color: var(--body);
++}
++
++.hornet-pick h2 {
++  margin-top: 0;
++  color: var(--ink);
++}
++
++.hornet-pick__button {
++  display: inline-block;
++  margin-top: 8px;
++  padding: 10px 18px;
++  background: var(--accent);
++  color: var(--on-accent);
++  cursor: pointer;
++}
++
++.hornet-pick__button:focus-within {
++  outline: 2px solid var(--accent);
++  outline-offset: 2px;
++}
++
++.hornet-pick__input {
++  position: absolute;
++  width: 1px;
++  height: 1px;
++  opacity: 0;
++}
++
++.hornet-pick__error {
++  color: var(--accent);
++}
++
++.hornet-pick__error.hidden {
++  display: none;
++}
++
++.hornet-file__forget {
++  padding: 0;
++  border: 0;
++  background: none;
++  color: var(--accent);
++  font: inherit;
++  text-decoration: underline;
++  cursor: pointer;
++}
++
++.hornet-controls {
++  display: flex;
++  flex-wrap: wrap;
++  align-items: center;
++  gap: 8px 14px;
++  max-width: var(--game-width);
++  margin: 12px auto 0;
++  color: var(--muted);
++}
++
++.hornet-controls__fullscreen {
++  padding: 8px 16px;
++  border: 0;
++  background: var(--accent);
++  color: var(--on-accent);
++  font: inherit;
++  cursor: pointer;
++}
++
++.hornet-controls__note {
++  max-width: var(--game-width);
++  margin: 8px auto 0;
++  color: var(--accent);
++}
++
++.hornet-controls__note.hidden {
++  display: none;
++}
++
++/* The game screen in full screen: fill the display, keep the 4:3 shape and
++   center it on black. */
++.game-canvas-wrap:fullscreen {
++  display: flex;
++  align-items: center;
++  justify-content: center;
++  width: 100vw;
++  height: 100vh;
++  max-width: none;
++  border: 0;
++  border-radius: 0;
++  aspect-ratio: auto;
++  background: #000;
++}
++
++.game-canvas-wrap:fullscreen .game-canvas {
++  flex: 0 0 auto;
++  width: min(100vw, 100vh * var(--game-aspect-width) / var(--game-aspect-height));
++  height: min(100vh, 100vw * var(--game-aspect-height) / var(--game-aspect-width));
++}
+diff --git a/www/src/hornet.rs b/www/src/hornet.rs
+new file mode 100644
+index 00000000..7aa353ee
+--- /dev/null
++++ b/www/src/hornet.rs
+@@ -0,0 +1,365 @@
++//! Single-game page for F/A-18 Hornet 2.0 with a game file that the player
++//! supplies. The page keeps the file in IndexedDB, so later visits boot from
++//! that copy and do not ask for the file again.
++
++use leptos::prelude::*;
++use leptos::task::spawn_local;
++use wasm_bindgen::{prelude::wasm_bindgen, JsCast, JsValue};
++use wasm_bindgen_futures::JsFuture;
++use web_sys::{Event, HtmlInputElement};
++
++use crate::catalogue::{games, Game, GameAssets, GameSettings};
++use crate::components::game_screen::GameScreen;
++
++const HORNET_GAME_ID: &str = "fa-18-hornet-20";
++const SCREEN_SIZE_KEY: &str = "hornet.screen-size";
++/// Mac screen sizes that the game supports, as in the desktop launcher. Its
++/// largest view is 1152 pixels wide.
++const SCREEN_SIZES: [(u16, u16); 3] = [(800, 600), (1024, 768), (1152, 870)];
++const HORNET_ABOUT_HTML: &str = r#"
++<h2>Flying</h2>
++<p>The pointer position is the control stick. Put the mouse in the center of
++the screen before you increase thrust. Open the <strong>Mission</strong> menu
++and select <strong>Training…</strong> for the training missions, or
++<strong>Fly</strong> for the current Tour of Duty mission.</p>
++<p>Delete sets thrust to 100%, and each next press adds one afterburner stage.
++<code>G</code> moves the landing gear, the Space bar is the brake, and
++<code>1</code> <code>2</code> <code>3</code> select the cockpit, look-down
++and external views. Esc stops the flight.</p>
++<p>Read the <a href="https://github.com/mitoyarzun/hornet#flying" target="_blank"
++rel="noopener noreferrer">full flying guide</a> in the project README.</p>
++<h2>Your game file</h2>
++<p>This browser keeps the game file and the saved files, such as the pilot
++dossier. The next visits start the game directly. Click <strong>Use a different
++game file</strong> below the game to remove the copy.</p>
++"#;
++
++#[wasm_bindgen(inline_js = r#"
++const DB_NAME = "hornet-game-file";
++const STORE = "files";
++const KEY = "game";
++
++function openDb() {
++  return new Promise((resolve, reject) => {
++    const request = indexedDB.open(DB_NAME, 1);
++    request.onupgradeneeded = () => request.result.createObjectStore(STORE);
++    request.onsuccess = () => resolve(request.result);
++    request.onerror = () => reject(request.error);
++  });
++}
++
++async function run(mode, action) {
++  const db = await openDb();
++  try {
++    return await new Promise((resolve, reject) => {
++      const tx = db.transaction(STORE, mode);
++      const request = action(tx.objectStore(STORE));
++      tx.oncomplete = () => resolve(request.result);
++      tx.onerror = () => reject(tx.error);
++      tx.onabort = () => reject(tx.error || new Error("IndexedDB transaction aborted"));
++    });
++  } finally {
++    db.close();
++  }
++}
++
++// The archive fetch rejects text/html, and a File can have any type. Keep the
++// bytes as an octet stream.
++export async function hornetStoreGameFile(file) {
++  const blob = new Blob([file], { type: "application/octet-stream" });
++  if (navigator.storage && navigator.storage.persist) {
++    try { await navigator.storage.persist(); } catch (_) {}
++  }
++  await run("readwrite", (store) => store.put({ name: file.name, blob }, KEY));
++  return URL.createObjectURL(blob);
++}
++
++export async function hornetLoadGameFile() {
++  const entry = await run("readonly", (store) => store.get(KEY));
++  if (!entry || !entry.blob) return null;
++  return [entry.name, URL.createObjectURL(entry.blob)];
++}
++
++export async function hornetClearGameFile() {
++  await run("readwrite", (store) => store.delete(KEY));
++}
++
++// Put the game screen in fullscreen. Then lock the keyboard, so that the
++// browser sends its own shortcuts, such as Command-W, to the game. Only
++// Chromium browsers have the Keyboard Lock API. Returns true for a lock.
++export async function hornetEnterFullscreen() {
++  const wrap = document.querySelector(".game-canvas-wrap");
++  if (!wrap) throw new Error("The game is not running");
++  if (document.fullscreenElement !== wrap) {
++    await wrap.requestFullscreen({ navigationUI: "hide" });
++  }
++  wrap.querySelector("canvas")?.focus();
++  if (!navigator.keyboard || !navigator.keyboard.lock) return false;
++  try {
++    await navigator.keyboard.lock();
++    return true;
++  } catch (_) {
++    return false;
++  }
++}
++
++document.addEventListener("fullscreenchange", () => {
++  if (!document.fullscreenElement && navigator.keyboard && navigator.keyboard.unlock) {
++    navigator.keyboard.unlock();
++  }
++});
++"#)]
++extern "C" {
++    #[wasm_bindgen(js_name = hornetStoreGameFile)]
++    fn store_game_file(file: &web_sys::File) -> js_sys::Promise;
++    #[wasm_bindgen(js_name = hornetLoadGameFile)]
++    fn load_game_file() -> js_sys::Promise;
++    #[wasm_bindgen(js_name = hornetClearGameFile)]
++    fn clear_game_file() -> js_sys::Promise;
++    #[wasm_bindgen(js_name = hornetEnterFullscreen)]
++    fn enter_fullscreen() -> js_sys::Promise;
++}
++
++#[derive(Clone, Debug, PartialEq)]
++enum PageState {
++    Checking,
++    NeedFile(String),
++    Ready { name: String, game: &'static Game },
++}
++
++/// Make the catalogue entry for Hornet use the player's file. The demo entry
++/// hides the menu bar, but the retail game needs its Mission menu.
++fn hornet_game(archive_url: String) -> &'static Game {
++    let base = games()
++        .iter()
++        .find(|game| game.id == HORNET_GAME_ID)
++        .expect("the catalogue contains F/A-18 Hornet 2.0");
++    let archive_url: &'static str = Box::leak(archive_url.into_boxed_str());
++    Box::leak(Box::new(Game {
++        approved: true,
++        assets: GameAssets {
++            archive_path: archive_url,
++            archive_download_name: "",
++            web_pack_path: None,
++            architecture_archives: &[],
++            ..base.assets
++        },
++        description: "Your own copy of the game, kept in this browser.",
++        content_html: HORNET_ABOUT_HTML,
++        settings: GameSettings {
++            show_menu_bar: true,
++            plugins: &[],
++            ..base.settings
++        },
++        ..*base
++    }))
++}
++
++fn js_error(value: JsValue) -> String {
++    value
++        .dyn_ref::<js_sys::Error>()
++        .map(|error| String::from(error.message()))
++        .or_else(|| value.as_string())
++        .unwrap_or_else(|| format!("{value:?}"))
++}
++
++fn local_storage() -> Option<web_sys::Storage> {
++    web_sys::window()?.local_storage().ok().flatten()
++}
++
++fn saved_screen_size() -> (u16, u16) {
++    local_storage()
++        .and_then(|storage| storage.get_item(SCREEN_SIZE_KEY).ok().flatten())
++        .and_then(|value| {
++            let (width, height) = value.split_once('x')?;
++            Some((width.parse().ok()?, height.parse().ok()?))
++        })
++        .filter(|size| SCREEN_SIZES.contains(size))
++        .unwrap_or(SCREEN_SIZES[0])
++}
++
++#[component]
++pub fn HornetApp() -> impl IntoView {
++    let state = RwSignal::new(PageState::Checking);
++
++    // The runtime reads the screen size one time, so set it before the game
++    // starts. A change of size reloads the page.
++    let screen_size = saved_screen_size();
++    systemless::systems::macintosh::machine_profile::set_reference_screen_size(
++        screen_size.0,
++        screen_size.1,
++    );
++    let on_screen_size = move |event: Event| {
++        let Some(select) = event
++            .target()
++            .and_then(|target| target.dyn_into::<web_sys::HtmlSelectElement>().ok())
++        else {
++            return;
++        };
++        if let Some(storage) = local_storage() {
++            let _ = storage.set_item(SCREEN_SIZE_KEY, &select.value());
++        }
++        if let Some(window) = web_sys::window() {
++            let _ = window.location().reload();
++        }
++    };
++
++    spawn_local(async move {
++        let next = match JsFuture::from(load_game_file()).await {
++            Ok(value) if value.is_null() => PageState::NeedFile(String::new()),
++            Ok(value) => {
++                let entry: js_sys::Array = value.unchecked_into();
++                PageState::Ready {
++                    name: entry.get(0).as_string().unwrap_or_default(),
++                    game: hornet_game(entry.get(1).as_string().unwrap_or_default()),
++                }
++            }
++            Err(error) => PageState::NeedFile(format!(
++                "Could not read the saved game file: {}",
++                js_error(error)
++            )),
++        };
++        state.set(next);
++    });
++
++    let on_pick = move |event: Event| {
++        let Some(input) = event
++            .target()
++            .and_then(|target| target.dyn_into::<HtmlInputElement>().ok())
++        else {
++            return;
++        };
++        let Some(file) = input.files().and_then(|files| files.item(0)) else {
++            return;
++        };
++        crate::emulator::begin_audio_from_user_gesture();
++        state.set(PageState::Checking);
++        spawn_local(async move {
++            let name = file.name();
++            state.set(match JsFuture::from(store_game_file(&file)).await {
++                Ok(url) => PageState::Ready {
++                    name,
++                    game: hornet_game(url.as_string().unwrap_or_default()),
++                },
++                Err(error) => {
++                    PageState::NeedFile(format!("Could not keep the game file: {}", js_error(error)))
++                }
++            });
++        });
++    };
++
++    let fullscreen_note = RwSignal::new(String::new());
++    let on_fullscreen = move |_| {
++        // Call requestFullscreen in the click handler: the browser permits it
++        // only during a user gesture.
++        let promise = enter_fullscreen();
++        spawn_local(async move {
++            fullscreen_note.set(match JsFuture::from(promise).await {
++                Ok(locked) if locked.as_bool() == Some(true) => String::new(),
++                Ok(_) => "This browser keeps some \u{2318} shortcuts, such as \u{2318}W and \u{2318}Q. \
++                          Use Chrome or Edge to send all of them to the game."
++                    .into(),
++                Err(error) => format!("Could not start full screen: {}", js_error(error)),
++            });
++        });
++    };
++
++    let on_forget = move |_| {
++        spawn_local(async move {
++            let message = match JsFuture::from(clear_game_file()).await {
++                Ok(_) => String::new(),
++                Err(error) => format!("Could not remove the saved game file: {}", js_error(error)),
++            };
++            // Reload so that the running game stops and frees its memory.
++            if message.is_empty() {
++                if let Some(window) = web_sys::window() {
++                    let _ = window.location().reload();
++                    return;
++                }
++            }
++            state.set(PageState::NeedFile(message));
++        });
++    };
++
++    view! {
++        // Show the game screen at its own size when the window is wide enough.
++        <div class="app hornet" data-view="playing" style=format!("--game-width: {}px", screen_size.0)>
++            <main class="app__main">
++                <div class="game-page game-page--focused">
++                    <header class="game-heading">
++                        <h1 class="game-title">"F/A-18 Hornet 2.0"</h1>
++                        <div class="game-heading__meta">
++                            <p class="game-byline">
++                                "Graphic Simulations Corporation \u{b7} 1995 \u{b7} runs on "
++                                <a href="https://github.com/benletchford/systemless" target="_blank" rel="noopener noreferrer">"Systemless"</a>
++                            </p>
++                        </div>
++                    </header>
++                    {move || match state.get() {
++                        PageState::Checking => view! {
++                            <p class="hornet-status">"Loading\u{2026}"</p>
++                        }.into_any(),
++                        PageState::NeedFile(error) => {
++                            let no_error = error.is_empty();
++                            view! {
++                            <section class="hornet-pick">
++                                <h2>"Choose your copy of the game"</h2>
++                                <p>
++                                    "Select a StuffIt archive (.sit), a MacBinary file (.bin) or an HFS disk image, "
++                                    "such as a Toast image of the retail disc or the free 2.0 demo. "
++                                    "The file stays in this browser. The page sends it to no server."
++                                </p>
++                                <label class="hornet-pick__button">
++                                    "Choose game file\u{2026}"
++                                    <input
++                                        class="hornet-pick__input"
++                                        type="file"
++                                        accept=".sit,.bin,.macbin,.img,.image,.dsk,.iso,.toast,.dmg,.cdr,application/octet-stream"
++                                        on:change=on_pick
++                                    />
++                                </label>
++                                <p class="hornet-pick__error" class:hidden=no_error>{error}</p>
++                            </section>
++                        }.into_any()
++                        }
++                        PageState::Ready { name, game } => view! {
++                            <div class="game-screen-wrap">
++                                <GameScreen game=game/>
++                            </div>
++                            <div class="hornet-controls">
++                                <button type="button" class="hornet-controls__fullscreen" on:click=on_fullscreen>
++                                    "Full screen"
++                                </button>
++                                <label class="hornet-controls__size">
++                                    "Screen size "
++                                    <select on:change=on_screen_size>
++                                        {SCREEN_SIZES.iter().map(|&(width, height)| view! {
++                                            <option
++                                                value=format!("{width}x{height}")
++                                                selected=(width, height) == screen_size
++                                            >
++                                                {format!("{width} \u{d7} {height}")}
++                                            </option>
++                                        }).collect_view()}
++                                    </select>
++                                </label>
++                                <span class="hornet-controls__hint">
++                                    "A new size restarts the game. In full screen, the \u{2318} key and its shortcuts go to the game. Hold Esc to leave full screen."
++                                </span>
++                            </div>
++                            <p class="hornet-controls__note" class:hidden=move || fullscreen_note.get().is_empty()>
++                                {move || fullscreen_note.get()}
++                            </p>
++                            <p class="hornet-file">
++                                "Game file: " {name} " \u{b7} "
++                                <button type="button" class="hornet-file__forget" on:click=on_forget>
++                                    "Use a different game file"
++                                </button>
++                            </p>
++                        }.into_any(),
++                    }}
++                </div>
++            </main>
++        </div>
++    }
++}
+diff --git a/www/src/main.rs b/www/src/main.rs
+index ba29a681..c0d16a52 100644
+--- a/www/src/main.rs
++++ b/www/src/main.rs
+@@ -1,12 +1,15 @@
+ mod adaptive_clock;
++#[allow(dead_code, unused_imports)]
+ mod app;
+ mod bench;
+ mod browser_bridge;
++#[allow(dead_code)]
+ mod catalogue;
+ #[cfg(test)]
+ mod compact_vectors;
+ mod components;
+ mod emulator;
++mod hornet;
+ mod indexed_frame;
+ mod paths;
+ mod presentation;
+@@ -26,9 +29,9 @@ fn main() {
+     }
+     if let Some(root) = root_element() {
+         root.set_inner_html("");
+-        mount_to(root, app::App).forget();
++        mount_to(root, hornet::HornetApp).forget();
+     } else {
+-        mount_to_body(app::App);
++        mount_to_body(hornet::HornetApp);
+     }
+ }
+ 
+diff --git a/www/src/renderer_bridge.rs b/www/src/renderer_bridge.rs
+index 6cd4285b..9354d595 100644
+--- a/www/src/renderer_bridge.rs
++++ b/www/src/renderer_bridge.rs
+@@ -9,8 +9,8 @@ export function createSystemlessRenderer(canvas, generation, owner) {
+       || typeof ResizeObserver !== 'function' || typeof Worker !== 'function') return null;
+   const resources = performance.getEntriesByType('resource').map(entry => entry.name);
+   const version = resources.find(url => /systemless[^/]*_bg\.wasm(?:\?|$)/.test(url)) || 'development';
+-  const moduleUrl = new URL('/renderer-client.js', location.href);
+-  const workerUrl = new URL('/renderer-worker.js', location.href);
++  const moduleUrl = new URL('renderer-client.js', document.baseURI);
++  const workerUrl = new URL('renderer-worker.js', document.baseURI);
+   moduleUrl.searchParams.set('runtime', version);
+   workerUrl.search = moduleUrl.search;
+   const handle = { client: null, pending: null, error: null, disposed: false, timer: null };
+diff --git a/www/src/style.css b/www/src/style.css
+index 7b409319..8603d3a2 100644
+--- a/www/src/style.css
++++ b/www/src/style.css
+@@ -1,6 +1,6 @@
+ @font-face {
+   font-family: "IBM Plex Sans";
+-  src: url("/assets/fonts/ibm-plex-sans-latin.woff2") format("woff2");
++  src: url("assets/fonts/ibm-plex-sans-latin.woff2") format("woff2");
+   font-style: normal;
+   font-weight: 400 600;
+   font-display: swap;
+@@ -8,7 +8,7 @@
+ 
+ @font-face {
+   font-family: "IBM Plex Mono";
+-  src: url("/assets/fonts/ibm-plex-mono-regular-latin.woff2") format("woff2");
++  src: url("assets/fonts/ibm-plex-mono-regular-latin.woff2") format("woff2");
+   font-style: normal;
+   font-weight: 400;
+   font-display: swap;
+@@ -16,7 +16,7 @@
+ 
+ @font-face {
+   font-family: "IBM Plex Mono";
+-  src: url("/assets/fonts/ibm-plex-mono-medium-latin.woff2") format("woff2");
++  src: url("assets/fonts/ibm-plex-mono-medium-latin.woff2") format("woff2");
+   font-style: normal;
+   font-weight: 500;
+   font-display: swap;
+@@ -24,7 +24,7 @@
+ 
+ @font-face {
+   font-family: "Instrument Serif";
+-  src: url("/assets/fonts/instrument-serif-regular-latin.woff2") format("woff2");
++  src: url("assets/fonts/instrument-serif-regular-latin.woff2") format("woff2");
+   font-style: normal;
+   font-weight: 400;
+   font-display: swap;
+@@ -32,7 +32,7 @@
+ 
+ @font-face {
+   font-family: "Instrument Serif";
+-  src: url("/assets/fonts/instrument-serif-italic-latin.woff2") format("woff2");
++  src: url("assets/fonts/instrument-serif-italic-latin.woff2") format("woff2");
+   font-style: italic;
+   font-weight: 400;
+   font-display: swap;
+diff --git a/www/src/worker_runtime.rs b/www/src/worker_runtime.rs
+index a97a30a4..bbcd3837 100644
+--- a/www/src/worker_runtime.rs
++++ b/www/src/worker_runtime.rs
+@@ -4,6 +4,7 @@ use wasm_bindgen::{prelude::wasm_bindgen, JsValue};
+ use crate::catalogue::{GameArchitecture, LaunchModifier, RuntimePacing};
+ use crate::emulator::{Machine, PluginFile};
+ use systemless::debug_overlay::DebugOverlayFrameStats;
++use systemless::systems::macintosh::machine_profile;
+ 
+ #[derive(serde::Deserialize)]
+ struct BootConfig {
+@@ -12,6 +13,10 @@ struct BootConfig {
+     launch_modifiers: Vec<LaunchModifier>,
+     show_menu_bar: bool,
+     screen_depth: Option<u16>,
++    /// The Mac screen size. The worker has its own copy of the runtime, so
++    /// the page sends the size that it set on its own copy.
++    #[serde(default)]
++    screen_size: Option<(u16, u16)>,
+     application_partition_size: Option<u32>,
+     #[serde(default)]
+     executable_path: Option<String>,
+@@ -93,6 +98,11 @@ impl WorkerMachine {
+     ) -> Result<WorkerMachine, JsValue> {
+         let config: BootConfig =
+             serde_json::from_str(config).map_err(|e| JsValue::from_str(&e.to_string()))?;
++        if let Some((width, height)) = config.screen_size {
++            if !machine_profile::set_reference_screen_size(width, height) {
++                return Err(JsValue::from_str("Could not set the screen size"));
++            }
++        }
+         let architecture = match config.architecture.as_str() {
+             "68k" => GameArchitecture::M68k,
+             "ppc" => GameArchitecture::PowerPc,

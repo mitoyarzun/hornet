@@ -5,6 +5,7 @@
 #   tools/setup-systemless.sh            # release build (slow, fastest to run)
 #   PROFILE=ci-test tools/setup-systemless.sh
 #   TARGET=x86_64-apple-darwin tools/setup-systemless.sh
+#   SKIP_BUILD=1 tools/setup-systemless.sh   # checkout and patches only
 set -eu
 
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -28,10 +29,13 @@ cd "$dest"
 git fetch --quiet origin
 git checkout --quiet --force "$commit"
 git reset --quiet --hard
+git clean --quiet -fd
 for patch in "$here"/patches/*.patch; do
     git apply "$patch"
     echo "applied $(basename "$patch")"
 done
+
+[ -z "${SKIP_BUILD:-}" ] || exit 0
 
 if [ -n "$target" ]; then
     cargo build --locked --profile "$profile" --target "$target" --bin systemless
